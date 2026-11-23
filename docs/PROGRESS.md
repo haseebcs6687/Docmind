@@ -129,3 +129,41 @@
 - **Decisions Made**:
   - Structured `DocUnit` with optional `page` (for PDFs) and `section` (for DOCX headings / TXT Q&As) so citation formatting adapts naturally per document format.
   - Used `iter_inner_content()` in `python-docx` to ensure tables and paragraphs maintain their natural inter-document reading order within their respective sections.
+
+## Step 5: Text Chunking, Gemini Embeddings & Persistent ChromaDB Vector Store
+- **What was built**:
+  - Implemented `src/chunking.py`:
+    - `Chunk` dataclass with deterministic ID generation (`_generate_chunk_id`).
+    - Sentence-aware splitting supporting English (`.!?:`) and Urdu (`۔`, `؟`) sentence terminations.
+    - Word-boundary preservation (no cutting words in half) with configurable `CHUNK_SIZE` (default 1000) and `CHUNK_OVERLAP` (default 150).
+    - Preserved short FAQ Q&As intact and ensured chunks never cross page boundaries.
+  - Implemented `src/vectorstore.py`:
+    - `embed_texts()` using `google-genai` SDK with batching (`EMBED_BATCH_SIZE=20`), throttling (`EMBED_BATCH_SLEEP_SECONDS=1.0`), exponential backoff retry with jitter, and custom `EmbeddingError` exception.
+    - `VectorStore` class wrapping ChromaDB `PersistentClient` with cosine distance metric (`hnsw:space: cosine`).
+    - Incremental indexing using SHA-256 file hashes (`index_units`) to avoid redundant embedding requests.
+    - Semantic search (`query()`) converting cosine distance to normalized similarity score ($1 - distance$).
+    - Store management operations: `delete_source()`, `list_sources()`, `count()`, `reset()`.
+  - Added configuration keys in `src/config.py`: `CHROMA_DIR`, `CHUNK_SIZE`, `CHUNK_OVERLAP`, `EMBED_BATCH_SIZE`, `EMBED_BATCH_SLEEP_SECONDS`.
+  - Pinned `chromadb==1.5.9` in `requirements.txt`.
+  - Created test suites `tests/test_chunking.py` and `tests/test_vectorstore.py` (offline with deterministic mock embeddings and isolated temp directories).
+  - Built indexing script `scripts/build_index.py` (idempotent, supports `--rebuild`) and retrieval evaluation script `scripts/test_retrieval.py` testing 6 benchmark queries.
+- **Library Choices & SDK Verification**:
+  - Embeddings: `client.models.embed_content()` via `google-genai` with `RETRIEVAL_DOCUMENT` for indexing chunks and `RETRIEVAL_QUERY` for user queries. `output_dimensionality` supported via Matryoshka learning on `gemini-embedding-001` (default 3072-dim).
+  - Vector Store: `chromadb==1.5.9` installed cleanly on Python 3.13 Windows via pre-built wheels with zero build errors.
+- **Test Results**:
+  - `pytest`: 18/18 tests passed across chunking, loaders, and vector store suites.
+  - Indexing: 76 chunks stored across 6 files in 4 API batch calls. Re-running without `--rebuild` skipped all 6 files with 0 API calls.
+  - Retrieval: Successfully evaluated English, Roman Urdu, Urdu script, and negative out-of-scope queries.
+- **Files Touched**:
+  - `requirements.txt`
+  - `src/config.py`
+  - `src/chunking.py`
+  - `src/vectorstore.py`
+  - `scripts/build_index.py`
+  - `scripts/test_retrieval.py`
+  - `tests/test_chunking.py`
+  - `tests/test_vectorstore.py`
+  - `docs/PROGRESS.md`
+- **Decisions Made**:
+  - Batching 20 texts per request to conserve daily request quotas (RPD) while remaining well below token per minute (TPM) ceilings.
+  - Normalized similarity score calculated as $score = \max(0.0, \min(1.0, 1.0 - distance))$.
