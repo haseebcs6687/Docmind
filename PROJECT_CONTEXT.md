@@ -20,6 +20,20 @@ DocMind is a Retrieval-Augmented Generation (RAG) "Chat With Your Documents" kno
 - **Vector Database**: ChromaDB
 - **Deployment**: Hugging Face Spaces via Docker SDK
 
+## Model Decisions & Limits
+- **Generation**: `gemini-3.5-flash-lite` (verified working; `gemini-2.5-flash` returns 404 "no longer available to new users"). `gemini-3.8-flash` is a candidate to compare in the evaluation step.
+- **Embeddings**: `gemini-embedding-001` (3072-dim, verified working).
+- **Approx Free-Tier Limits (AI Studio)**:
+  - Generation: ~15 RPM / ~250K TPM / ~500 RPD.
+  - Embedding: ~100 RPM / ~30K TPM / ~1000 RPD.
+  - RPD resets at midnight Pacific.
+- **Design Rules**:
+  - Embed in batches with throttling + retry/backoff on HTTP 429.
+  - Persist the vector store to disk so documents are never re-embedded unnecessarily.
+  - Show friendly messages on rate-limit errors.
+  - Model names always come from `.env` via `src/config.py`.
+- **Note on API Evolution**: The API error suggested the newer "Interactions API"; we currently use `generate_content` which works. Before writing the RAG code in Step 6, check the official docs (`ai.google.dev`) for the currently recommended approach and tell me what you chose and why.
+
 ## UI Design & Direction
 - **Sidebar**: Dark near-black sidebar with navigation items and active pill highlight. Planned pages: Chat, Documents, Sources, Evaluation, Settings.
 - **Main Workspace**: Light grey main area with white rounded cards with soft borders.

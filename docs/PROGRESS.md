@@ -40,6 +40,12 @@
 - **SDK Chosen and Why**:
   - SDK: `google-genai` (v3.6.1)
   - Why: This is the official, current unified SDK recommended by Google in the Gemini API documentation (`ai.google.dev quickstart`), replacing the legacy `google-generativeai` package.
+- **Model Verification & Decisions**:
+  - Tested and verified `gemini-3.5-flash-lite` for text generation via Mode B in `scripts/check_gemini.py` (Urdu greeting test succeeded; `gemini-2.5-flash` returned HTTP 404 "no longer available to new users"). `gemini-3.8-flash` noted as candidate to compare in evaluation step.
+  - Tested and verified `gemini-embedding-001` for embeddings via Mode B (verified 3072-dimensional vector output).
+  - Documented AI Studio free-tier rate limits (~15 RPM / ~250K TPM / ~500 RPD for generation; ~100 RPM / ~30K TPM / ~1000 RPD for embeddings; resets at midnight Pacific).
+  - Established architectural guardrails: batch embedding with throttling/retry backoff, vector store disk persistence, user-friendly rate limit messaging, loading model configurations from `.env`.
+  - Noted check on "Interactions API" vs `generate_content` prior to Step 6 RAG implementation.
 - **Python Version**: Python 3.13.15
 - **Files Touched**:
   - `.gitignore`
