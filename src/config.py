@@ -11,6 +11,9 @@ load_dotenv()
 GEMINI_MODEL: Optional[str] = os.getenv("GEMINI_MODEL", "").strip() or None
 GEMINI_EMBED_MODEL: Optional[str] = os.getenv("GEMINI_EMBED_MODEL", "").strip() or None
 
+# Maximum upload file size in megabytes (default 20 MB)
+MAX_UPLOAD_MB: int = int(os.getenv("MAX_UPLOAD_MB", "20"))
+
 
 def get_gemini_api_key() -> str:
     """Retrieve the Gemini API key from environment variables.

@@ -95,3 +95,37 @@
   - Separated development-only document generation libraries into `requirements-dev.txt` to keep the production runtime dependencies lean in `requirements.txt`.
   - Implemented a two-pass `NumberedCanvas` in ReportLab to dynamically calculate total page counts without external PDF parsing tools.
   - Formatted the ground truth answer key with exact page and section locations to prepare for RAG evaluation citations in later stages.
+
+## Step 4: Document Loaders (PDF, DOCX, TXT) with Source Metadata
+- **What was built**:
+  - Implemented `src/loaders.py` with `DocUnit` dataclass and source citation helper `citation_label()`.
+  - Added robust parsing handlers:
+    - PDF: Page-level extraction using `pypdf`, preserving 1-based page numbers. Detects scanned/unextractable PDFs gracefully without crashing.
+    - DOCX: Heading-guided unit segmentation using `python-docx`'s `iter_inner_content()` to preserve sequential ordering of headings, paragraphs, and tables. Fallback to block grouping if headings are absent.
+    - TXT: UTF-8 BOM-aware decoding with fallback, parsing Q&A pairs (both English `Q:` and Urdu `سوال:`) into coherent blocks with section tracking (`Q&A 1`, etc.).
+    - Whitespace normalization preserving non-Latin scripts (Urdu characters preserved without mangling).
+  - Added `MAX_UPLOAD_MB` configuration setting (default: 20 MB) in `src/config.py`.
+  - Implemented `load_file` (supporting paths, bytes, and file-like objects for Streamlit uploads) and `load_directory` (with comprehensive loaded/skipped reporting).
+  - Pinned `pypdf==7.1.1` and `python-docx==1.2.0` in `requirements.txt`; pinned `pytest==9.2.0` in `requirements-dev.txt`.
+  - Created test suite in `tests/test_loaders.py` covering all 6 sample documents, page counts, fact verification, DOCX headings, Urdu preservation, error handling, and bytes inputs.
+  - Created diagnostic inspection utility in `scripts/inspect_loaders.py`.
+- **Library Choice & Rationale**:
+  - Selected `pypdf` (v7.1.1) and `python-docx` (v1.2.0): pure-Python, actively maintained, zero C/system runtime dependencies, enabling lightweight, reliable builds in Hugging Face Docker environments.
+- **Test Results**:
+  - `pytest`: 8/8 tests passed in 0.84s.
+  - `scripts/inspect_loaders.py`: All 6 demo documents loaded into 51 total `DocUnit` instances (0 skipped).
+- **Known Limitations**:
+  - No OCR support: purely scanned image-based PDFs without an embedded text layer cannot be parsed and will raise a friendly error indicating OCR is not supported.
+  - Urdu text extraction from PDFs depends on whether the generating engine embedded proper Unicode cmap/fonts (standard text files and well-encoded PDFs extract reliably).
+- **Files Touched**:
+  - `.gitignore`
+  - `requirements.txt`
+  - `requirements-dev.txt`
+  - `src/config.py`
+  - `src/loaders.py`
+  - `scripts/inspect_loaders.py`
+  - `tests/test_loaders.py`
+  - `docs/PROGRESS.md`
+- **Decisions Made**:
+  - Structured `DocUnit` with optional `page` (for PDFs) and `section` (for DOCX headings / TXT Q&As) so citation formatting adapts naturally per document format.
+  - Used `iter_inner_content()` in `python-docx` to ensure tables and paragraphs maintain their natural inter-document reading order within their respective sections.
