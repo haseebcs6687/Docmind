@@ -69,7 +69,10 @@ class NumberedCanvas(canvas.Canvas):
 
         # Top running header on pages > 1
         if self._pageNumber > 1:
-            self.drawString(54, 792, "Sterling & Rauf Law Associates — Legal Practice Documentation")
+            header_text = "Sterling & Rauf Law Associates — Legal Practice Documentation"
+            if hasattr(self, "_filename") and "Master_Services_Agreement" in str(self._filename):
+                header_text = "Master Services Agreement — Northgate Logistics & Brightline Solutions"
+            self.drawString(54, 792, header_text)
             self.setStrokeColor(colors.HexColor("#D1D5DB"))
             self.setLineWidth(0.5)
             self.line(54, 784, 541, 784)
@@ -1153,6 +1156,301 @@ Sterling & Rauf Law Associates, Lahore, Pakistan
     output_path.write_text(faq_content.strip() + "\n", encoding="utf-8")
 
 
+
+
+
+def build_master_services_agreement_pdf(output_path: Path) -> None:
+    """Generate Master_Services_Agreement_Northgate.pdf (4 pages minimum)."""
+    doc = SimpleDocTemplate(
+        str(output_path),
+        pagesize=A4,
+        leftMargin=54,
+        rightMargin=54,
+        topMargin=60,
+        bottomMargin=54,
+        invariant=1,
+    )
+    styles = get_pdf_styles()
+    story = []
+
+    # --- PAGE 1: Parties, Recitals, Effective Date, Scope & Term ---
+    story.append(Paragraph("COMMERCIAL CONTRACTS PRACTICE GROUP", styles["DocSubtitle"]))
+    story.append(Paragraph("MASTER SERVICES AGREEMENT", styles["DocTitle"]))
+    story.append(Paragraph("Enterprise Logistics IT Platform & Engineering Services", styles["SubSectionHeading"]))
+    story.append(HRFlowable(width="100%", thickness=1.5, color=colors.HexColor("#1E1B4B"), spaceBefore=4, spaceAfter=12))
+
+    story.append(Paragraph("1. Parties to the Agreement", styles["SectionHeading"]))
+    story.append(Paragraph(
+        "This Master Services Agreement ('Agreement') is made and executed by and between:<br/><br/>"
+        "<b>1.1. Client:</b> <b>Northgate Logistics (Pvt) Ltd</b>, a private limited commercial entity incorporated under the laws of Pakistan, having its registered corporate headquarters situated at 12-K, Gulberg Industrial Estate, Lahore, Pakistan, acting through its Chief Executive Officer, <b>Mr. Bilal Ahmed</b> (hereinafter referred to as the 'Client'); and<br/><br/>"
+        "<b>1.2. Service Provider:</b> <b>Brightline Software Solutions (Pvt) Ltd</b>, a private limited technology company incorporated under the laws of Pakistan, having its principal operational office situated at Plot 45, Commercial Sector, Phase 5, DHA, Lahore, Pakistan, acting through its Director, <b>Ms. Sana Iqbal</b> (hereinafter referred to as the 'Service Provider').<br/><br/>"
+        "The Client and Service Provider are individually referred to as a 'Party' and collectively as the 'Parties'.",
+        styles["LegalBody"],
+    ))
+
+    story.append(Paragraph("2. Purpose & Commercial Recitals", styles["SectionHeading"]))
+    story.append(Paragraph(
+        "<b>2.1. Operational Context:</b> The Client manages nationwide cargo, freight distribution, and supply chain logistics operations and requires specialized software engineering, automated consignment dispatch modules, and cloud fleet tracking infrastructure.<br/>"
+        "<b>2.2. Professional Qualifications:</b> The Service Provider specializes in enterprise supply-chain software engineering, custom database integrations, and transport management platforms, possessing certified personnel and technical capabilities.<br/>"
+        "<b>2.3. SOW Hierarchy:</b> Specific software deliverables, feature roadmaps, milestone schedules, and acceptance protocols shall be executed under separate sequential Statements of Work ('SOW') governed by the terms of this master framework.",
+        styles["LegalBody"],
+    ))
+
+    story.append(Paragraph("3. Effective Date, Term & Renewal Mechanism", styles["SectionHeading"]))
+    story.append(Paragraph(
+        "<b>3.1. Effective Date:</b> This Agreement shall come into full legal force and effect on <b>1 March 2026</b> ('Effective Date').<br/>"
+        "<b>3.2. Initial Contract Term:</b> The initial term of this Agreement shall be for an agreed period of <b>24 months</b> commencing on the Effective Date, concluding on 28 February 2028, unless terminated earlier in accordance with Section 11.<br/>"
+        "<b>3.3. Automatic Successive Renewal:</b> Upon the expiration of the initial 24-month term, this Agreement auto-renews for successive <b>12-month</b> terms unless either party gives <b>60 days'</b> written notice before expiry of the then-current term.",
+        styles["LegalBody"],
+    ))
+
+    story.append(PageBreak())
+
+    # --- PAGE 2: Service Specifications, Invoicing & Intellectual Property ---
+    story.append(Paragraph("4. Scope of Software Engineering Services", styles["SectionHeading"]))
+    story.append(Paragraph(
+        "<b>4.1. Core IT Architecture:</b> The Service Provider shall design, deploy, maintain, and support the Client's central logistics database engine, tracking integrations, and warehouse inventory interfaces.<br/>"
+        "<b>4.2. Milestone Adherence:</b> All code sprints, database optimizations, and interface deliveries shall conform strictly to the technical benchmarks established in each executed SOW.<br/>"
+        "<b>4.3. Code Standards:</b> All deliverables shall be written in accordance with contemporary industry clean-code practices, comprehensive testing coverage, and documented deployment procedures.",
+        styles["LegalBody"],
+    ))
+
+    story.append(Paragraph("5. Monthly Fees, Billing & Invoicing Terms", styles["SectionHeading"]))
+    story.append(Paragraph(
+        "<b>5.1. Retained Engineering Fee:</b> In consideration of the core platform maintenance, technical support, and logistics integration services rendered, the Client shall pay a fixed fee of <b>PKR 450,000</b> per month.<br/>"
+        "<b>5.2. Monthly Advance Invoicing:</b> The agreed service fee shall be invoiced monthly in advance by the Service Provider on the first business day of each relevant calendar month.<br/>"
+        "<b>5.3. Payment Due Date:</b> Invoices issued pursuant to Section 5.2 shall be payable within <b>20 days</b> of invoice issuance by direct bank transfer to the Service Provider's nominated corporate account in Lahore.<br/>"
+        "<b>5.4. SOW Project Additions:</b> Any auxiliary custom software components, third-party software licensing disbursements, or dedicated infrastructure requirements outside the baseline operational scope shall be quoted separately on a milestone basis.",
+        styles["LegalBody"],
+    ))
+
+    story.append(Paragraph("6. Late Payment Penalties & Disputed Invoices", styles["SectionHeading"]))
+    story.append(Paragraph(
+        "<b>6.1. Monthly Overdue Charge:</b> Any uncontested billing balance remaining unpaid after the contractual 20-day due date shall accrue a late payment charge of <b>1.5%</b> per month calculated on the outstanding sum from the due date until full liquidation.<br/>"
+        "<b>6.2. Dispute Notification Protocol:</b> In the event of a good-faith dispute regarding invoiced hours or milestone deliverables, the Client shall notify the Service Provider in writing within 10 days of invoice receipt, and the Parties shall negotiate in good faith while undisputed sums are paid on schedule.",
+        styles["LegalBody"],
+    ))
+
+    story.append(Paragraph("7. Intellectual Property & Passage of Deliverable Ownership", styles["SectionHeading"]))
+    story.append(Paragraph(
+        "<b>7.1. Custom Deliverables:</b> All bespoke application modules, API connectors, database schemas, and documentation developed specifically for the Client shall constitute project deliverables.<br/>"
+        "<b>7.2. Transfer of Title:</b> Ownership of deliverables passes to the Client upon <b>full payment</b> of all accrued fees and invoices pertaining to the respective deliverables.<br/>"
+        "<b>7.3. Vendor Background Tools:</b> The Service Provider retains ownership of its generic development libraries and pre-existing code frameworks, granting the Client a non-exclusive, perpetual license to run such tools within the deliverable software.",
+        styles["LegalBody"],
+    ))
+
+    story.append(PageBreak())
+
+    # --- PAGE 3: Confidentiality & Limitation of Liability ---
+    story.append(Paragraph("8. Confidentiality & Non-Disclosure Obligations", styles["SectionHeading"]))
+    story.append(Paragraph(
+        "<b>8.1. Confidential Scope:</b> During the performance of services, each Party may disclose to the other Party proprietary commercial strategies, freight routing datasets, software code, customer records, and operational methods.<br/>"
+        "<b>8.2. Duty to Safeguard:</b> The recipient Party covenants to treat the disclosing Party's confidential information with the utmost security and diligence, employing at minimum the standard of care it uses for its own sensitive data.<br/>"
+        "<b>8.3. Survival Period:</b> The obligations of confidentiality under this Section shall survive for <b>5 years</b> after termination or expiration of this Agreement.<br/>"
+        "<b>8.4. Exceptions:</b> Confidentiality shall not apply to information that is publicly known through no breach of this Agreement or is rightfully received from an independent third party without restrictive covenants.",
+        styles["LegalBody"],
+    ))
+
+    story.append(Paragraph("9. Limitation of Liability & Exclusion of Damages", styles["SectionHeading"]))
+    story.append(Paragraph(
+        "<b>9.1. Financial Liability Cap:</b> To the fullest extent permitted under the applicable laws of Pakistan, the total liability of either party arising out of or related to this Agreement is capped at the fees paid in the preceding <b>12 months</b>.<br/>"
+        "<b>9.2. Waiver of Consequential Damages:</b> Neither Party shall be liable to the other for indirect, incidental, consequential, special, or exemplary damages, including lost business revenues, commercial interruption, or reputational impairment.<br/>"
+        "<b>9.3. Mutual Application:</b> The liability cap established in Section 9.1 is mutual and applies in aggregate to all causes of action, whether sounding in contract, statutory warranty, tort, or civil negligence.",
+        styles["LegalBody"],
+    ))
+
+    story.append(Paragraph("10. Service Level Governance & System Maintenance", styles["SectionHeading"]))
+    story.append(Paragraph(
+        "<b>10.1. Availability Benchmark:</b> The Service Provider shall ensure a target platform availability of 99.5% for core cloud dispatch services, excluding pre-scheduled maintenance windows.<br/>"
+        "<b>10.2. Critical Defect Remediation:</b> Severe system defects impacting fleet dispatch operations shall be diagnosed within 2 hours and remediated within 24 hours of formal notification.",
+        styles["LegalBody"],
+    ))
+
+    story.append(PageBreak())
+
+    # --- PAGE 4: Termination, Governing Law, Arbitration & Signatures ---
+    story.append(Paragraph("11. Termination of Agreement", styles["SectionHeading"]))
+    story.append(Paragraph(
+        "<b>11.1. Termination for Convenience:</b> Either party may terminate this Agreement for convenience on <b>90 days'</b> written notice to the other party without cause and without incurring penalty liabilities.<br/>"
+        "<b>11.2. Termination for Material Cause:</b> Either party may terminate this Agreement for cause after a <b>30-day</b> cure period following written notification specifying the material breach, if such breach remains uncured upon expiration of the 30 days.<br/>"
+        "<b>11.3. Winding Down Procedures:</b> Upon delivery of any notice of termination, the Service Provider shall orderly transition deliverables, return Client operational records, and issue a final reconciled billing statement.",
+        styles["LegalBody"],
+    ))
+
+    story.append(Paragraph("12. Governing Law & Dispute Resolution", styles["SectionHeading"]))
+    story.append(Paragraph(
+        "<b>12.1. Governing Law:</b> This Agreement shall be governed by, interpreted, and construed in accordance with the <b>laws of Pakistan</b>.<br/>"
+        "<b>12.2. Exclusive Arbitration:</b> Any dispute, controversy, or claim arising out of or relating to this Agreement, or the breach, termination, or invalidity thereof, shall be settled by <b>arbitration in Lahore before a sole arbitrator</b>.<br/>"
+        "<b>12.3. Proceedings & Finality:</b> The arbitration proceedings shall be conducted under the Arbitration Act, 1940. The venue of arbitration shall be Lahore, Pakistan, and the language of proceedings shall be English. The arbitral award shall be final and binding upon both Parties.",
+        styles["LegalBody"],
+    ))
+
+    story.append(Paragraph("13. Miscellaneous Provisions", styles["SectionHeading"]))
+    story.append(Paragraph(
+        "<b>13.1. Entire Understanding:</b> This Agreement and its appended Statements of Work embody the entire agreement between the Parties and supersede all prior negotiations, proposals, and memoranda.<br/>"
+        "<b>13.2. Severability:</b> The invalidity or unenforceability of any provision hereof shall not impair the validity of the remaining provisions of this Agreement.",
+        styles["LegalBody"],
+    ))
+
+    story.append(Spacer(1, 14))
+    story.append(Paragraph("14. Execution & Corporate Authorization", styles["SectionHeading"]))
+    story.append(Paragraph("IN WITNESS WHEREOF, the Parties have caused this Master Services Agreement to be executed by their duly authorized representatives on 1 March 2026.", styles["LegalBody"]))
+    story.append(Spacer(1, 10))
+
+    sig_data = [
+        [
+            Paragraph("<b>FOR THE CLIENT:</b><br/><b>Northgate Logistics (Pvt) Ltd</b><br/><br/><br/>__________________________________<br/><b>Mr. Bilal Ahmed</b><br/>Chief Executive Officer (CEO)<br/>CNIC: 35201-1892345-1<br/>Date: 1 March 2026", styles["TableCellBold"]),
+            Paragraph("<b>FOR THE SERVICE PROVIDER:</b><br/><b>Brightline Software Solutions (Pvt) Ltd</b><br/><br/><br/>__________________________________<br/><b>Ms. Sana Iqbal</b><br/>Director<br/>CNIC: 35202-7654321-2<br/>Date: 1 March 2026", styles["TableCellBold"]),
+        ]
+    ]
+    sig_table = Table(sig_data, colWidths=[240, 240])
+    sig_table.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LINEBEFORE", (0, 0), (-1, -1), 0.5, colors.HexColor("#D1D5DB")),
+        ("LINEAFTER", (0, 0), (-1, -1), 0.5, colors.HexColor("#D1D5DB")),
+        ("LINEABOVE", (0, 0), (-1, -1), 0.5, colors.HexColor("#D1D5DB")),
+        ("LINEBELOW", (0, 0), (-1, -1), 0.5, colors.HexColor("#D1D5DB")),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 10),
+        ("TOPPADDING", (0, 0), (-1, -1), 10),
+    ]))
+    story.append(sig_table)
+
+    doc.build(story, canvasmaker=NumberedCanvas)
+
+
+def build_commercial_lease_docx(output_path: Path) -> None:
+    """Generate Commercial_Lease_Agreement_Gulberg_Office.docx (3+ pages of text)."""
+    doc = Document()
+
+    # Document Title & Preamble
+    p_title = doc.add_paragraph()
+    r_title = p_title.add_run("COMMERCIAL LEASE AGREEMENT")
+    r_title.bold = True
+    r_title.font.size = Pt(16)
+    r_title.font.color.rgb = RGBColor(0x1E, 0x1B, 0x4B)
+    p_title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+    p_sub = doc.add_paragraph()
+    r_sub = p_sub.add_run("Commercial Office Premises — Gulberg Business Plaza, Lahore\nFictional demo document - not real legal advice")
+    r_sub.font.size = Pt(10)
+    r_sub.italic = True
+    r_sub.font.color.rgb = RGBColor(0x4F, 0x46, 0xE5)
+    p_sub.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+    doc.add_paragraph(
+        "This Commercial Lease Agreement ('Lease') is made and executed on this 20th day of March 2026, by and between the Landlord and Tenant identified below.\n"
+    )
+
+    doc.add_heading("1. Parties to the Lease", level=3)
+    doc.add_paragraph(
+        "1.1. Landlord: Mr. Imran Qureshi, an adult citizen of Pakistan, holding CNIC No. 35202-1984723-3, residing at House 42, Block G, Model Town, Lahore, Pakistan (hereinafter referred to as the 'Landlord', which expression shall include his heirs, legal executors, and assigns).\n\n"
+        "1.2. Tenant: Crescent Textiles (Pvt) Ltd, a corporate commercial entity incorporated under the corporate laws of Pakistan, having its registered principal office situated at Plot 18, Commercial Zone, Gulberg III, Lahore, Pakistan, acting by and through its Managing Director, Mr. Danish Rehman, authorized pursuant to Board Resolution dated 10 March 2026 (hereinafter referred to as the 'Tenant', which expression shall include its corporate successors and permitted assigns).\n\n"
+        "The Landlord and Tenant are individually referred to as a 'Party' and collectively as the 'Parties'."
+    )
+
+    doc.add_heading("2. Description of Demised Premises", level=3)
+    doc.add_paragraph(
+        "2.1. Demised Premises: The Landlord hereby lets and leases unto the Tenant, and the Tenant hereby takes on lease from the Landlord, all that commercial office premises known as Suite 301-303, Third Floor, Gulberg Business Plaza, Main Boulevard, Gulberg, Lahore, Pakistan, comprising an approximate covered area of 4,200 square feet, together with fixtures, electrical distribution boards, and designated restroom facilities situated therein.\n"
+        "2.2. Condition of Premises: The Tenant confirms that it has inspected the demised premises prior to execution and accepts possession in its existing operational condition."
+    )
+
+    doc.add_heading("3. Commencement Date & Lease Term", level=3)
+    doc.add_paragraph(
+        "3.1. Commencement Date: The formal tenancy and right of occupation under this Lease shall commence on 1 April 2026 ('Commencement Date').\n"
+        "3.2. Lease Duration: The term of this Lease shall be for a fixed duration of 3 years commencing on 1 April 2026 and expiring on 31 March 2029, unless terminated earlier in strict conformity with the provisions of Section 8."
+    )
+
+    doc.add_heading("4. Monthly Rent & Annual Escalation Rate", level=3)
+    doc.add_paragraph(
+        "4.1. Base Monthly Rental: In consideration of the tenancy granted herein, the Tenant covenants to pay to the Landlord a monthly rent of PKR 380,000 per month for the first lease year (1 April 2026 to 31 March 2027).\n"
+        "4.2. Annual Rental Escalation: The monthly rent shall increase by 10% at the start of each lease year on a compounding basis. Accordingly, the monthly rent for the second lease year (commencing 1 April 2027) shall be PKR 418,000 per month, and the monthly rent for the third lease year (commencing 1 April 2028) shall be PKR 459,800 per month.\n"
+        "4.3. Payment Remittance: All rental payments shall be remitted by crossed pay order or electronic bank transfer directly into the Landlord's designated bank account in Lahore."
+    )
+
+    doc.add_heading("5. Payment Due Date & Daily Late Fee", level=3)
+    doc.add_paragraph(
+        "5.1. Advance Due Date: The agreed monthly rent shall be due and payable strictly in advance on or before the 5th of each month (the 5th calendar day of each successive billing month).\n"
+        "5.2. Daily Late Fee Penalty: If the Tenant fails to pay the rent on or before the 5th of the month, the Tenant shall pay an additional late fee of PKR 5,000 per day of delay for every calendar day the payment remains overdue until the outstanding rental amount is liquidated in full."
+    )
+
+    doc.add_heading("6. Security Deposit & Refund Protocol", level=3)
+    doc.add_paragraph(
+        "6.1. Quantum of Deposit: Upon the execution of this Agreement, the Tenant shall pay to the Landlord an interest-free security deposit equal to 3 months' rent (PKR 1,140,000) as financial security for the due performance of the Tenant's covenants.\n"
+        "6.2. Retention & Refund: The security deposit shall not be adjusted against monthly rent during the subsistence of the lease. The Landlord covenants that the security deposit is refundable within 30 days of handover of peaceful, vacant possession of the premises upon expiry or lawful early termination of the Lease, subject to deductions for unpaid utility charges or tenant-attributable physical damage."
+    )
+
+    doc.add_heading("7. Maintenance, Utilities & Structural Repair Obligations", level=3)
+    doc.add_paragraph(
+        "7.1. Tenant Utility Responsibilities: The Tenant is responsible for all utilities, including electricity, water consumption, generator backup fuel surcharge, telephone lines, and internet services consumed on the demised premises. The Tenant shall promptly pay all utility bills issued by relevant service utilities.\n"
+        "7.2. Minor Repairs: The Tenant is responsible for routine interior upkeep, light fixture replacements, and minor repairs inside the leased premises.\n"
+        "7.3. Landlord Structural Obligations: The Landlord is responsible for structural repairs, main exterior load-bearing walls, foundation integrity, central building plumbing stacks, and roof weatherproofing maintenance across the commercial plaza."
+    )
+
+    doc.add_heading("8. Permitted Commercial Use & Statutory Compliance", level=3)
+    doc.add_paragraph(
+        "8.1. Commercial Office Purpose: The Tenant shall use the demised premises solely for executive corporate offices, textile design administration, and commercial management, and for no hazardous, residential, or offensive purpose.\n"
+        "8.2. Bar on Subletting: The Tenant shall not assign, sublet, underlet, or transfer possession of the premises or any part thereof to any third party without obtaining prior written consent from the Landlord.\n"
+        "8.3. Statutory Compliance: The Tenant shall comply with all civic municipal bylaws, building safety regulations, fire prevention standards, and local environmental ordinances applicable in Lahore."
+    )
+
+    doc.add_heading("9. Termination of Lease & Notice Period", level=3)
+    doc.add_paragraph(
+        "9.1. Early Termination Notice: Either party may terminate this Lease on 60 days' written notice after the first 12 months of the tenancy term.\n"
+        "9.2. Lock-in Period: During the initial 12 months from the Commencement Date, neither Party shall terminate the Lease except in the case of uncured material default.\n"
+        "9.3. Handover Condition: Upon effective termination or natural expiration of the Lease, the Tenant shall deliver vacant, unencumbered, and broom-clean physical possession of the premises to the Landlord in good tenantable order."
+    )
+
+    doc.add_heading("10. Governing Law & Judicial Jurisdiction", level=3)
+    doc.add_paragraph(
+        "10.1. Applicable Law: This Lease Agreement shall be governed by, construed, and enforced in accordance with the laws of Pakistan, including the Punjab Rented Premises Act.\n"
+        "10.2. Exclusive Court Jurisdiction: The Parties hereby agree to submit to the exclusive jurisdiction of the courts of Lahore, Pakistan, in respect of any claim, suit, proceeding, or dispute arising under or in connection with this tenancy."
+    )
+
+    doc.add_heading("11. Alterations & Landlord Inspection Rights", level=3)
+    doc.add_paragraph(
+        "11.1. Interior Partitioning: The Tenant may erect internal demountable partitions, modular cubicles, and office fixtures at its own cost, provided no structural walls, columns, or main beams are altered or damaged.\n"
+        "11.2. Landlord Inspection: The Landlord or his authorized representative shall be entitled to enter upon the premises during normal business hours upon providing at least 24 hours prior written notice to inspect the physical condition of the property."
+    )
+
+    doc.add_heading("12. Formal Execution & Signatories", level=3)
+    doc.add_paragraph(
+        "IN WITNESS WHEREOF, the Landlord and Tenant have set their hands and seals to this Commercial Lease Agreement on the date first mentioned above in Lahore, Pakistan.\n"
+    )
+
+    sig_table = doc.add_table(rows=2, cols=2)
+    sig_table.rows[0].cells[0].text = (
+        "LANDLORD:\n\n\n"
+        "__________________________________\n"
+        "Mr. Imran Qureshi\n"
+        "Landlord / Property Owner\n"
+        "CNIC: 35202-1984723-3\n"
+        "Date: 20 March 2026"
+    )
+    sig_table.rows[0].cells[1].text = (
+        "TENANT:\n\n\n"
+        "__________________________________\n"
+        "Mr. Danish Rehman\n"
+        "Managing Director, Crescent Textiles (Pvt) Ltd\n"
+        "CNIC: 35201-9482103-5\n"
+        "Date: 20 March 2026"
+    )
+
+    # Save with normalized zip entry timestamps for deterministic generation
+    buf = io.BytesIO()
+    doc.save(buf)
+    buf.seek(0)
+    fixed_time = (2026, 1, 1, 0, 0, 0)
+    out_buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "r") as zin:
+        with zipfile.ZipFile(out_buf, "w", compression=zipfile.ZIP_DEFLATED) as zout:
+            for item in zin.infolist():
+                data = zin.read(item.filename)
+                zinfo = zipfile.ZipInfo(filename=item.filename, date_time=fixed_time)
+                zinfo.compress_type = zipfile.ZIP_DEFLATED
+                zout.writestr(zinfo, data)
+    output_path.write_bytes(out_buf.getvalue())
+
+
 def main() -> None:
     """Generate all demo documents and verify their page counts and sizes."""
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -1164,6 +1462,8 @@ def main() -> None:
     pdf4 = OUTPUT_DIR / "Confidentiality_and_Data_Policy.pdf"
     docx_file = OUTPUT_DIR / "Client_Engagement_Letter_Template.docx"
     txt_file = OUTPUT_DIR / "Client_FAQ.txt"
+    pdf5 = OUTPUT_DIR / "Master_Services_Agreement_Northgate.pdf"
+    docx2 = OUTPUT_DIR / "Commercial_Lease_Agreement_Gulberg_Office.docx"
 
     build_fee_schedule_pdf(pdf1)
     build_practice_areas_pdf(pdf2)
@@ -1171,26 +1471,29 @@ def main() -> None:
     build_data_policy_pdf(pdf4)
     build_engagement_letter_docx(docx_file)
     build_client_faq_txt(txt_file)
+    build_master_services_agreement_pdf(pdf5)
+    build_commercial_lease_docx(docx2)
 
     print("Generation complete. Verifying generated files:\n")
-    print("=" * 80)
-    print(f"{'Filename':<40} | {'Size (KB)':<12} | {'Pages / Details'}")
-    print("-" * 80)
+    print("=" * 85)
+    print(f"{'Filename':<46} | {'Size (KB)':<12} | {'Pages / Details'}")
+    print("-" * 85)
 
-    for f in [pdf1, pdf2, pdf3, pdf4, docx_file, txt_file]:
+    all_files = [pdf1, pdf2, pdf3, pdf4, docx_file, txt_file, pdf5, docx2]
+    for f in all_files:
         size_kb = f.stat().st_size / 1024
         if f.suffix == ".pdf":
             pages = NumberedCanvas.page_counts.get(str(f), "N/A")
             details = f"{pages} pages"
         elif f.suffix == ".docx":
-            details = "DOCX Template (2+ pages text)"
+            details = "DOCX Document"
         elif f.suffix == ".txt":
             details = "UTF-8 Text (18 English Q&As)"
         else:
             details = "N/A"
-        print(f"{f.name:<40} | {size_kb:<12.1f} | {details}")
+        print(f"{f.name:<46} | {size_kb:<12.1f} | {details}")
 
-    print("=" * 80)
+    print("=" * 85)
 
 
 if __name__ == "__main__":

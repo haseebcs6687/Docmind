@@ -32,7 +32,13 @@ MAX_CITATIONS: int = int(os.getenv("MAX_CITATIONS", "3"))
 GEN_TEMPERATURE: float = float(os.getenv("GEN_TEMPERATURE", "0.1"))
 GEN_MAX_RETRIES: int = int(os.getenv("GEN_MAX_RETRIES", "3"))
 GEN_TOTAL_BUDGET_SECONDS: float = float(os.getenv("GEN_TOTAL_BUDGET_SECONDS", "40.0"))
+GEN_THINKING_LEVEL: Optional[str] = os.getenv("GEN_THINKING_LEVEL")
 HISTORY_TURNS: int = int(os.getenv("HISTORY_TURNS", "4"))
+
+# Contract Analysis Configuration
+MAX_ANALYSIS_CHARS: int = int(os.getenv("MAX_ANALYSIS_CHARS", "60000"))
+MAX_ANALYSES_PER_SESSION: int = int(os.getenv("MAX_ANALYSES_PER_SESSION", "10"))
+MIN_SECONDS_BETWEEN_ANALYSES: float = float(os.getenv("MIN_SECONDS_BETWEEN_ANALYSES", "5.0"))
 
 # Document Access Modes & Practice Areas
 ACCESS_MODES = ("staff", "client")

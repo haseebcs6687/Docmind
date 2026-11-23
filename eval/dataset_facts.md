@@ -61,3 +61,54 @@ These topics are deliberately **omitted** from all documents in the knowledge ba
 3. **Branch Offices**: Any presence or office branch in Karachi, Islamabad, Rawalpindi, or other cities (the firm operates solely from Lahore).
 4. **Staff Salaries**: Associate salaries, partner earnings, paralegal compensation, or internal staff payroll amounts.
 5. **Tax-Return Filing**: FBR income tax return preparation, personal tax filing, or annual wealth statement submission services.
+
+---
+
+## 3. Contract Key Terms (Staff-Only Ground Truth)
+
+The following key terms represent the ground truth for contract analysis of sample commercial agreements in `data/sample_docs/`. Both contracts are restricted to staff visibility (`Client-visible = N`).
+
+### 3.1. Master Services Agreement (`Master_Services_Agreement_Northgate.pdf`)
+
+| Fact Description | Exact Value | Source File | Page / Section | Client-visible |
+| :--- | :--- | :--- | :--- | :---: |
+| Contract type | Master Services Agreement (IT Platform & Software Engineering) | `Master_Services_Agreement_Northgate.pdf` | Page 1, Header & Recitals | N |
+| Parties | Northgate Logistics (Pvt) Ltd ("Client") and Brightline Software Solutions (Pvt) Ltd ("Service Provider") | `Master_Services_Agreement_Northgate.pdf` | Page 1, Section 1 | N |
+| Effective date | 1 March 2026 | `Master_Services_Agreement_Northgate.pdf` | Page 1, Section 3.1 | N |
+| Contract term | 24 months (commencing 1 March 2026 to 28 February 2028) | `Master_Services_Agreement_Northgate.pdf` | Page 1, Section 3.2 | N |
+| Renewal mechanism | Auto-renews for successive 12-month terms unless 60 days' written notice | `Master_Services_Agreement_Northgate.pdf` | Page 1, Section 3.3 | N |
+| Payment terms & fee | PKR 450,000 per month, invoiced monthly in advance, payable within 20 days | `Master_Services_Agreement_Northgate.pdf` | Page 2, Section 5.1, 5.2 | N |
+| Late payment penalty | 1.5% per month on overdue balance | `Master_Services_Agreement_Northgate.pdf` | Page 2, Section 5.3 | N |
+| Deliverables & IP ownership | Ownership of deliverables passes to Client upon full payment | `Master_Services_Agreement_Northgate.pdf` | Page 2, Section 7.1 | N |
+| Confidentiality survival | Survives for 5 years after termination | `Master_Services_Agreement_Northgate.pdf` | Page 3, Section 8.2 | N |
+| Limitation of liability | Capped at fees paid in preceding 12 months | `Master_Services_Agreement_Northgate.pdf` | Page 3, Section 9.1 | N |
+| Termination for convenience | 90 days' written notice | `Master_Services_Agreement_Northgate.pdf` | Page 4, Section 11.1 | N |
+| Termination for cause | 30-day cure period following written notification | `Master_Services_Agreement_Northgate.pdf` | Page 4, Section 11.2 | N |
+| Governing law | Laws of Pakistan | `Master_Services_Agreement_Northgate.pdf` | Page 4, Section 12.1 | N |
+| Dispute resolution | Arbitration in Lahore before a sole arbitrator | `Master_Services_Agreement_Northgate.pdf` | Page 4, Section 12.2 | N |
+| Signatories | Mr. Bilal Ahmed (CEO, Northgate) and Ms. Sana Iqbal (Director, Brightline) | `Master_Services_Agreement_Northgate.pdf` | Page 4, Section 14 | N |
+| Force majeure | NOT STATED (deliberately omitted) | `Master_Services_Agreement_Northgate.pdf` | N/A | N |
+
+### 3.2. Commercial Lease Agreement (`Commercial_Lease_Agreement_Gulberg_Office.docx`)
+
+| Fact Description | Exact Value | Source File | Page / Section | Client-visible |
+| :--- | :--- | :--- | :--- | :---: |
+| Contract type | Commercial Lease Agreement (Office Premises) | `Commercial_Lease_Agreement_Gulberg_Office.docx` | Overview | N |
+| Parties | Mr. Imran Qureshi ("Landlord") and Crescent Textiles (Pvt) Ltd ("Tenant") | `Commercial_Lease_Agreement_Gulberg_Office.docx` | Section 1 | N |
+| Commencement date | 1 April 2026 | `Commercial_Lease_Agreement_Gulberg_Office.docx` | Section 3.1 | N |
+| Lease term | 3 years (1 April 2026 to 31 March 2029) | `Commercial_Lease_Agreement_Gulberg_Office.docx` | Section 3.2 | N |
+| Renewal mechanism | NOT STATED (omitted from lease agreement) | `Commercial_Lease_Agreement_Gulberg_Office.docx` | N/A | N |
+| Monthly rent & escalation | PKR 380,000 per month with 10% annual escalation at start of each year | `Commercial_Lease_Agreement_Gulberg_Office.docx` | Section 4.1, 4.2 | N |
+| Payment due date | On or before 5th of each month in advance | `Commercial_Lease_Agreement_Gulberg_Office.docx` | Section 5.1 | N |
+| Late payment fee | PKR 5,000 per day of delay | `Commercial_Lease_Agreement_Gulberg_Office.docx` | Section 5.2 | N |
+| Security deposit | 3 months' rent (PKR 1,140,000), refundable within 30 days of handover | `Commercial_Lease_Agreement_Gulberg_Office.docx` | Section 6.1, 6.2 | N |
+| Maintenance & repair obligations | Tenant: utilities & minor repairs; Landlord: structural repairs | `Commercial_Lease_Agreement_Gulberg_Office.docx` | Section 7.1, 7.2, 7.3 | N |
+| Termination notice | Either party on 60 days' written notice after initial 12-month lock-in | `Commercial_Lease_Agreement_Gulberg_Office.docx` | Section 9.1, 9.2 | N |
+| Governing law | Laws of Pakistan (including Punjab Rented Premises Act) | `Commercial_Lease_Agreement_Gulberg_Office.docx` | Section 10.1 | N |
+| Dispute resolution | Exclusive jurisdiction of courts of Lahore (no arbitration) | `Commercial_Lease_Agreement_Gulberg_Office.docx` | Section 10.2 | N |
+| Signatories | Mr. Imran Qureshi (Landlord) and Mr. Danish Rehman (MD, Crescent Textiles) | `Commercial_Lease_Agreement_Gulberg_Office.docx` | Section 12 | N |
+| Force majeure | NOT STATED (deliberately omitted) | `Commercial_Lease_Agreement_Gulberg_Office.docx` | N/A | N |
+| Liability cap | NOT STATED (deliberately omitted) | `Commercial_Lease_Agreement_Gulberg_Office.docx` | N/A | N |
+| Indemnity clause | NOT STATED (deliberately omitted) | `Commercial_Lease_Agreement_Gulberg_Office.docx` | N/A | N |
+| Confidentiality clause | NOT STATED (deliberately omitted) | `Commercial_Lease_Agreement_Gulberg_Office.docx` | N/A | N |
+

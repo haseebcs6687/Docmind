@@ -150,6 +150,7 @@ def classify_error(err: Exception) -> ErrorCategory:
                 "connection refused",
                 "remote end closed",
                 "remotedisconnected",
+                "getaddrinfo",
             )
         )
     ):
@@ -228,11 +229,13 @@ def call_with_retry_and_fallback(
 
     start_time = clock()
     target_model = primary_model
-    fallback_candidate = fallback_model or GEMINI_FALLBACK_MODEL
+    fallback_candidate = fallback_model if fallback_model is not None else GEMINI_FALLBACK_MODEL
+    if not fallback_candidate:
+        fallback_candidate = None
     fallback_used = False
 
     attempt = 0
-    backoff = 1.0
+    backoff = 2.0
 
     while True:
         elapsed = clock() - start_time

@@ -15,6 +15,7 @@ from src.config import (
     GEMINI_MODEL,
     GEN_MAX_RETRIES,
     GEN_TEMPERATURE,
+    GEN_THINKING_LEVEL,
     GEN_TOTAL_BUDGET_SECONDS,
     HISTORY_TURNS,
     MAX_CITATIONS,
@@ -60,6 +61,9 @@ class RagResponse:
     model_used: str = ""
     fallback_used: bool = False
     cached: bool = False
+    embed_ms: float = 0.0
+    gen_ms: float = 0.0
+    rewrite_ms: float = 0.0
 
 
 class AnswerCache:
@@ -106,6 +110,9 @@ class AnswerCache:
             model_used=resp.model_used,
             fallback_used=resp.fallback_used,
             cached=True,
+            embed_ms=0.0,
+            gen_ms=0.0,
+            rewrite_ms=0.0,
         )
 
     def set(
@@ -135,6 +142,9 @@ class AnswerCache:
             model_used=resp.model_used,
             fallback_used=resp.fallback_used,
             cached=False,
+            embed_ms=resp.embed_ms,
+            gen_ms=resp.gen_ms,
+            rewrite_ms=resp.rewrite_ms,
         )
         self._cache[key] = (time.time(), cached_resp)
 
@@ -272,6 +282,7 @@ def generate_rag_answer(
     else:
         allowed_visibility = {"client", "staff"}
 
+    t_embed_start = time.perf_counter()
     try:
         results = vstore.query(
             search_q,
@@ -282,6 +293,7 @@ def generate_rag_answer(
     except TypeError:
         # Backward-compatibility for mock stores in tests that do not accept kwargs
         results = vstore.query(search_q, k=TOP_K)
+    embed_ms = round((time.perf_counter() - t_embed_start) * 1000, 2)
     api_calls = 1
 
     top_score = results[0]["score"] if results else 0.0
@@ -297,6 +309,9 @@ def generate_rag_answer(
             latency_ms=latency_ms,
             api_calls=api_calls,
             standalone_question=search_q,
+            embed_ms=embed_ms,
+            gen_ms=0.0,
+            rewrite_ms=0.0,
         )
         if not skip_cache:
             GLOBAL_ANSWER_CACHE.set(search_q, store_fingerprint, resp, access_mode, practice_areas)
@@ -335,12 +350,16 @@ def generate_rag_answer(
         from google.genai import types
 
         client = create_gemini_client()
-        config = types.GenerateContentConfig(
-            response_mime_type="application/json",
-            response_schema=RagJsonOutput,
-            temperature=GEN_TEMPERATURE,
-            system_instruction=system_instruction,
-        )
+        cfg_args: Dict[str, Any] = {
+            "response_mime_type": "application/json",
+            "response_schema": RagJsonOutput,
+            "temperature": GEN_TEMPERATURE,
+            "system_instruction": system_instruction,
+        }
+        if GEN_THINKING_LEVEL:
+            cfg_args["thinking_config"] = types.ThinkingConfig(thinking_level=GEN_THINKING_LEVEL)
+
+        config = types.GenerateContentConfig(**cfg_args)
         resp = client.models.generate_content(
             model=model_name,
             contents=prompt_text,
@@ -349,6 +368,7 @@ def generate_rag_answer(
         return getattr(resp, "text", "") or ""
 
     api_calls += 1
+    t_gen_start = time.perf_counter()
     raw_output, model_used, fallback_used = call_with_retry_and_fallback(
         lambda m: _execute_llm_call(m, user_prompt),
         primary_model=gen_model,
@@ -377,6 +397,8 @@ def generate_rag_answer(
             parsed_json = json.loads(repaired_output)
         except Exception as e:
             raise GenerationError(ErrorCategory.UNKNOWN, f"Failed to generate valid structured JSON response: {e}")
+
+    gen_ms = round((time.perf_counter() - t_gen_start) * 1000, 2)
 
     # 5. Output Validation & Guardrails
     found = bool(parsed_json.get("found", False))
@@ -426,6 +448,9 @@ def generate_rag_answer(
         model_used=model_used,
         fallback_used=fallback_used,
         cached=False,
+        embed_ms=embed_ms,
+        gen_ms=gen_ms,
+        rewrite_ms=0.0,
     )
 
     if not skip_cache:
@@ -615,7 +640,9 @@ class ChatSession:
         start_time = time.perf_counter()
 
         # 4. Query reformulation if conversational history exists
+        t_rw_start = time.perf_counter()
         standalone_q, rewrite_calls = self._rewrite_question(clean_q, active_llm)
+        rewrite_ms = round((time.perf_counter() - t_rw_start) * 1000, 2) if rewrite_calls > 0 else 0.0
 
         # 5. Answer flow with access mode and practice area filtering
         resp = answer(
@@ -630,6 +657,7 @@ class ChatSession:
         if not resp.cached:
             resp.api_calls += rewrite_calls
             resp.latency_ms = round((time.perf_counter() - start_time) * 1000, 2)
+            resp.rewrite_ms = rewrite_ms
         resp.standalone_question = standalone_q
 
         # Add to history only if answer was found

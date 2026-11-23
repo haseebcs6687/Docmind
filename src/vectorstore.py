@@ -4,6 +4,7 @@ import hashlib
 import json
 import logging
 import random
+import re
 import time
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
@@ -467,3 +468,75 @@ class VectorStore:
             })
 
         return output
+
+    def get_source_units(
+        self,
+        name: str,
+        allowed_visibility: Optional[Union[Set[str], List[str]]] = None,
+    ) -> List[DocUnit]:
+        """Retrieve the document text units/chunks for a given source document name.
+
+        Respects allowed_visibility: if allowed_visibility is provided and any chunk
+        in the document has visibility outside allowed_visibility, returns an empty list.
+        """
+        if self.count() == 0 or not name:
+            return []
+
+        res = self.collection.get(
+            where={"source": name},
+            include=["documents", "metadatas"],
+        )
+        docs = res.get("documents", [])
+        metas = res.get("metadatas", [])
+
+        if not docs or not metas:
+            return []
+
+        allowed_set = set(allowed_visibility) if allowed_visibility is not None else None
+
+        items: List[Tuple[int, DocUnit]] = []
+        for doc_text, meta in zip(docs, metas):
+            vis = meta.get("visibility", DEFAULT_UPLOAD_VISIBILITY)
+            if allowed_set is not None and vis not in allowed_set:
+                logger.warning(
+                    "get_source_units: document '%s' has visibility '%s' not in allowed %s",
+                    name,
+                    vis,
+                    allowed_set,
+                )
+                return []
+
+            chunk_idx = meta.get("chunk_index", 0)
+            page_val = meta.get("page")
+            page_clean = int(page_val) if page_val and page_val > 0 else None
+            section_clean = meta.get("section") or None
+            file_type = meta.get("file_type", "")
+
+            items.append((
+                chunk_idx,
+                DocUnit(
+                    text=doc_text,
+                    source=name,
+                    page=page_clean,
+                    section=section_clean,
+                    file_type=file_type,
+                ),
+            ))
+
+        def _doc_sort_key(item: Tuple[int, DocUnit]) -> Tuple[int, int, int]:
+            chunk_idx, unit = item
+            page = unit.page or 0
+            sec_num = 0
+            if unit.section:
+                m = re.match(r"^(\d+)", unit.section)
+                if m:
+                    sec_num = int(m.group(1))
+                elif "overview" in unit.section.lower() or "preamble" in unit.section.lower():
+                    sec_num = 0
+                else:
+                    sec_num = 999
+            return (page, sec_num, chunk_idx)
+
+        items.sort(key=_doc_sort_key)
+        return [unit for _, unit in items]
+

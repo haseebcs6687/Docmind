@@ -558,5 +558,72 @@
     - Negative test on "Do you have parking space?": gated on score threshold (0.62 < 0.65) with 0 LLM calls.
   - Verified git status: `.env` and `chroma_db/` remain untracked.
 
+## Step 12: Contract Key-Terms Analyzer with Verified Citations & Latency Diagnosis
+- **What was built**:
+  - **PART A - Latency Diagnosis & Observability**:
+    - Added per-stage timings to `RagResponse`: `embed_ms`, `gen_ms`, `rewrite_ms` (0.0 when stage did not run). Updated `scripts/ask.py` to print fine-grained stage breakdown.
+    - Verified and silenced internal SDK loggers (`httpx2`, `httpcore2`, `google_genai.models`, `google.genai`) in `src/logging_setup.py` so runs print zero HTTP transport noise or AFC messages.
+    - Implemented `scripts/latency_probe.py` comparing generation performance across 3 configurations:
+      - Primary (`gemini-3.5-flash-lite`, default): median 1342.9 ms, 88 output tokens.
+      - Fallback (`gemini-3.8-flash`, default): upstream 503 ServerError under demand spike.
+      - Primary with `ThinkingLevel.MINIMAL`: median 997.8 ms, 85 output tokens (~25.7% faster latency).
+      - Added optional `GEN_THINKING_LEVEL` configuration (unset = default).
+  - **PART B - Fictional Commercial Contracts Dataset (Staff-Only)**:
+    - Extended `scripts/generate_sample_docs.py` with byte-identical determinism (original 6 files unchanged in git):
+      - `Master_Services_Agreement_Northgate.pdf` (4 pages, Corporate, Staff-only): Enterprise logistics IT services agreement between Northgate Logistics (Pvt) Ltd and Brightline Software Solutions (Pvt) Ltd.
+      - `Commercial_Lease_Agreement_Gulberg_Office.docx` (13 sections, Property, Staff-only): 3-year commercial office lease between Mr. Imran Qureshi and Crescent Textiles (Pvt) Ltd.
+    - Updated `data/sample_docs/manifest.json` with Corporate and Property visibility mappings.
+    - Documented all 28 ground truth contract terms and deliberate omissions in `eval/dataset_facts.md`.
+    - Verified ChromaDB indexing: 2 new files added (26 new chunks, total 97 chunks); Client sees 4 docs / 52 chunks, Staff sees 8 docs / 97 chunks.
+  - **PART C - Contract Analyzer Core Engine (`src/contracts.py`)**:
+    - 14 Predefined Contract Fields: `contract_type`, `parties`, `effective_date`, `term`, `renewal`, `payment`, `late_payment`, `termination`, `liability`, `confidentiality`, `governing_law`, `dispute_resolution`, `signatories`, `force_majeure`.
+    - Core function `analyze_contract(units, document_name, access_mode, ...)`:
+      - Role-based security: strictly refuses unauthorized roles (`ContractAnalysisAccessError` if `access_mode != "staff"`).
+      - Size protection: `ContractAnalysisSizeError` if total characters exceed `MAX_ANALYSIS_CHARS=60000`.
+      - Single generation call with structured JSON schema (`ContractAnalysisExtraction`), bounded retries, and fallback.
+      - Post-processing: all 14 keys guaranteed present; whitespace and case-insensitive quote verification against cited unit, multi-fragment quote support (ellipsis/sentence boundaries), citation correction across units, unverified marking when quote is absent from text, and forced empty values for `found=False`.
+      - Dataclasses: `FieldResult`, `ContractAnalysis`.
+      - In-process caching via `ContractAnalysisCache` keyed by `(sha256, access_mode)`.
+      - Session rate limiter `AnalysisSessionTracker` enforcing 5s cooldown and 10 analyses per session.
+    - Added `VectorStore.get_source_units(name, allowed_visibility)` in `src/vectorstore.py` retrieving units in true chronological document order with strict visibility checking.
+    - Added `analysis_to_csv(analysis)` with formula injection protection (prepends `'` to cells starting with `=`, `+`, `-`, `@`).
+  - **PART D - Streamlit UI (Staff-Only)**:
+    - New "Contract Analyzer" page (`:material/gavel:`) dynamically added to navigation only in Staff mode; completely absent in Client mode.
+    - Selectbox of indexed contracts (defaulting to Corporate/Property/Contract agreements), plus file uploader for analyzing arbitrary unindexed contracts in memory without embedding calls.
+    - 4 pastel stat cards (Fields Found, Verified, Not Stated, Unverified), clean results table with field name, extracted value, verbatim quote, source citation chip, and status chip (green Verified, amber Not Stated, red Unverified), soft amber row tint on not-stated rows, "Download CSV" button, latency caption, and legal disclaimer callout.
+  - **PART E - Offline Testing**:
+    - Comprehensive unit test suite in `tests/test_contracts.py` (16 tests) covering verified quotes, citation correction, unverified handling, found=False wiping, missing key defaults, invalid unit numbers, client mode denial, AppTest role navigation gating, size guard, cache hits (0 API calls), visibility filtering, malformed JSON repair, session limits/cooldown, CSV formula injection protection, script tag HTML escaping, and in-memory byte upload parsing.
+  - **PART F - Live Verification**:
+    - Created `scripts/check_contracts.py` evaluating both contracts against ground truth facts.
+    - Live verification results: 27/28 (96.4%) terms matched; Lease scored 14/14 (100.0%) with 0 unverified; live cache hit verified in 0.91 ms and 0 API calls.
+    - Headless Streamlit startup test ran with zero regressions.
+- **Python Version**: Python 3.13.15
+- **Files Touched**:
+  - `src/config.py`
+  - `.env.example`
+  - `src/gemini_client.py`
+  - `src/vectorstore.py`
+  - `src/rag.py`
+  - `src/contracts.py`
+  - `src/ui/contracts_page.py`
+  - `app.py`
+  - `scripts/generate_sample_docs.py`
+  - `data/sample_docs/manifest.json`
+  - `data/sample_docs/Master_Services_Agreement_Northgate.pdf`
+  - `data/sample_docs/Commercial_Lease_Agreement_Gulberg_Office.docx`
+  - `eval/dataset_facts.md`
+  - `tests/test_contracts.py`
+  - `scripts/check_contracts.py`
+  - `scripts/latency_probe.py`
+  - `README.md`
+  - `docs/PROGRESS.md`
+- **How it was tested**:
+  - Full offline test suite: 94/94 tests passed via `pytest` (0 API calls).
+  - Generator determinism: ran twice, proved byte-identical SHA-256 for all 8 documents with original 6 unchanged in git.
+  - Live contract verification with `scripts/check_contracts.py`: 96.4% ground truth match, 0 unverified on Lease, instant in-process cache hit.
+  - Headless Streamlit test: verified clean startup on port 8502.
+  - Git status: `.env` and `chroma_db/` remain strictly untracked.
+
+
 
 

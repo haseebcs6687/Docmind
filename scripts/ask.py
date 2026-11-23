@@ -47,7 +47,10 @@ def print_response(question: str, resp) -> None:
     elif not resp.found:
         print("Citations: None (Answer not found in documents or below score threshold)")
 
-    print(f"\nLatency: {resp.latency_ms:.1f} ms | API calls: {resp.api_calls}")
+    embed_t = getattr(resp, "embed_ms", 0.0)
+    gen_t = getattr(resp, "gen_ms", 0.0)
+    rw_t = getattr(resp, "rewrite_ms", 0.0)
+    print(f"\nLatency: {resp.latency_ms:.1f} ms (embed: {embed_t:.1f} ms, gen: {gen_t:.1f} ms, rewrite: {rw_t:.1f} ms) | API calls: {resp.api_calls}")
     print("=" * 80)
 
 
