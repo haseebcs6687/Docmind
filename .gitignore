@@ -1,0 +1,24 @@
+# Environment variables and secrets
+.env
+.streamlit/secrets.toml
+
+# Virtual environment
+.venv/
+venv/
+
+# Python bytecode and cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# ChromaDB / vector store storage
+chroma/
+chroma_db/
+.chroma/
+
+# Operating system files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
