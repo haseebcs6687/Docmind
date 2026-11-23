@@ -63,3 +63,35 @@
 - **Decisions Made**:
   - Used module-level `__getattr__` and `get_gemini_api_key()` in `src/config.py` for safe key retrieval with clear error messaging when unconfigured.
   - Formatted tables in `scripts/check_gemini.py` with standard library formatting without introducing unpinned external dependencies.
+
+## Step 3: Fictional Law Firm Demo Dataset Generation
+- **What was built**:
+  - Dev dependencies file `requirements-dev.txt` with pinned versions (`reportlab==5.1.0`, `python-docx==1.2.0`). Production `requirements.txt` remained untouched.
+  - Generator script `scripts/generate_sample_docs.py` creating the complete fictional dataset for "Sterling & Rauf Law Associates" in `data/sample_docs/`:
+    1. `Fee_Schedule_2026.pdf` (4 pages): consultation fees, hourly rates, retainers by practice area, fixed fees, payment terms, late fees, refund policy.
+    2. `Practice_Areas_Brochure.pdf` (3 pages): practice areas (corporate, property, family, civil litigation, contracts, IP), leadership team, approach, explicit non-handled areas.
+    3. `Client_Intake_SOP.pdf` (4 pages): staff procedures from first contact to engagement, intake form, conflict check, KYC checklists (individual & corporate), appointment booking, escalation tiers.
+    4. `Confidentiality_and_Data_Policy.pdf` (3 pages): advocate-client privilege, physical & digital security, 7-year retention schedule, internal 24-hr breach notification protocol.
+    5. `Client_Engagement_Letter_Template.docx` (multi-page DOCX template): comprehensive clauses covering scope, rates, retainers, billing, refunds, KYC, communication, confidentiality, termination, and signature blocks.
+    6. `Client_FAQ.txt` (UTF-8): 18 English Q&As and 5 Urdu script Q&As reflecting all core facts.
+  - Every document includes the mandatory disclaimer: `"Fictional demo document - not real legal advice"` and running headers/footers with dynamic page counts (`Page X of Y`).
+  - Ground truth evaluation answer key `eval/dataset_facts.md` mapping 41 distinct facts with columns `Fact Description | Exact Value | Source File | Page / Section`, along with explicit negative test cases (excluded topics).
+- **Excluded Topics Verified**:
+  - Confirmed via automated regex grep that none of the 5 out-of-scope topics (parking, mobile wallets like JazzCash/Easypaisa, Karachi/Islamabad branch offices, staff salaries, tax-return filing) appear anywhere in the generated corpus.
+- **How to Regenerate**:
+  - Run `.\.venv\Scripts\python.exe scripts\generate_sample_docs.py`. The generator is idempotent and overwrites files in `data/sample_docs/`.
+- **Files Touched**:
+  - `requirements-dev.txt`
+  - `scripts/generate_sample_docs.py`
+  - `data/sample_docs/Fee_Schedule_2026.pdf`
+  - `data/sample_docs/Practice_Areas_Brochure.pdf`
+  - `data/sample_docs/Client_Intake_SOP.pdf`
+  - `data/sample_docs/Confidentiality_and_Data_Policy.pdf`
+  - `data/sample_docs/Client_Engagement_Letter_Template.docx`
+  - `data/sample_docs/Client_FAQ.txt`
+  - `eval/dataset_facts.md`
+  - `docs/PROGRESS.md`
+- **Decisions Made**:
+  - Separated development-only document generation libraries into `requirements-dev.txt` to keep the production runtime dependencies lean in `requirements.txt`.
+  - Implemented a two-pass `NumberedCanvas` in ReportLab to dynamically calculate total page counts without external PDF parsing tools.
+  - Formatted the ground truth answer key with exact page and section locations to prepare for RAG evaluation citations in later stages.
