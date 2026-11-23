@@ -342,3 +342,88 @@
   - Passed callable functions to `st.Page` with `lambda: render_chat_page(...)` to enable safe intra-page links and clean dependency mocking in `AppTest` test runners.
   - Cached `VectorStore` with `@st.cache_resource` so the persistent ChromaDB client is opened once per server process rather than per user interaction.
 
+## Step 9: Visual Styling & Dashboard Theme
+- **What was built**:
+  - Created centralized stylesheet `src/ui/styles.css` adapting the target reference aesthetic to a law-firm knowledge assistant:
+    - Near-black sidebar (`#0F1117`) with rounded navigation pill highlights and section labels.
+    - Light grey workspace (`#F5F6F8`) with generous padding and clean sans typography.
+    - White rounded cards (`16px` radius, 1px soft border `#E5E7EB`, subtle shadow).
+    - 4 pastel stat cards (mint, peach, blue, pink) with WCAG AA compliant text contrast.
+    - Soft indigo-tinted user message bubbles (`#EEF2FF`) and white assistant message cards.
+    - Restyled Sources expander with mini cards, bold labels, green ($\ge 75\%$) and amber ($65-74\%$) relevance chips, and muted snippet blocks.
+    - Soft amber callout cards for not-found responses and demo disclaimers.
+    - Rounded pill starter buttons with hover lift.
+    - Clean chat input with indigo focus ring (`#4F46E5`).
+    - Ghost styling for the "Clear conversation" button.
+  - Implemented `src/ui/theme.py`:
+    - Helper `inject_custom_theme()` reading `styles.css` and injecting once from `app.py` via `st.markdown(..., unsafe_allow_html=True)`.
+    - Marked with `<!-- docmind-injected-styles -->` for automated test verification.
+  - Implemented reusable HTML components in `src/ui/components.py`:
+    - `page_header(title, subtitle)`: Page titles with clean subtitles.
+    - `brand_header()`: Sidebar brand block with violet gradient logo glyph and tagline.
+    - `sidebar_status_chip(doc_count, chunk_count)`: Bottom pill chip with green status dot and demo caption.
+    - `stat_card(label, value, icon, tone)` & `stat_cards_grid(cards)`: Generic pastel stat card renderer.
+    - `source_mini_card(citation, score, snippet)`: Mini card with percentage match chip and snippet.
+    - `not_found_card(message)`: Soft amber callout for not-found responses.
+    - `demo_callout_card(text)`: Soft amber callout for disclaimers.
+    - `file_type_chip(file_type)`: Colored format badges (PDF=red-ish, DOCX=blue, TXT=grey).
+    - Strict HTML escaping (`html.escape`) across all dynamic fields to eliminate XSS risks.
+  - Updated `app.py`:
+    - Integrated `inject_custom_theme()`.
+    - Rendered brand header and uppercase `WORKSPACE` section label.
+    - Updated navigation icons to Material icons (`:material/chat:`, `:material/description:`).
+    - Added bottom status chip.
+  - Updated `src/ui/chat_page.py` & `src/ui/documents_page.py`:
+    - Replaced raw headings with component headers.
+    - Rendered the 4 pastel stat cards and formatted document table with badges and cards.
+  - Updated `.streamlit/config.toml`:
+    - Synchronized colors: `backgroundColor = "#F5F6F8"`, `sidebar.backgroundColor = "#0F1117"`.
+  - Added unit tests in `tests/test_ui_smoke.py`:
+    - `test_html_escaping_prevents_xss`: proves malicious `<script>` tags in inputs are safely sanitized.
+    - `test_styles_css_exists_and_injected`: proves `styles.css` exists and is properly injected at runtime.
+  - Created `docs/screenshots/.gitkeep`.
+- **Design Tokens Used**:
+  - Colors:
+    - Primary accent: `#4F46E5` (Indigo 600), Hover: `#4338CA`
+    - Workspace background: `#F5F6F8`, Main card: `#FFFFFF`
+    - Sidebar background: `#0F1117`, Sidebar border: `#1F2430`, Active pill: `#4F46E5`
+    - Mint tone: bg `#ECFDF5`, border `#A7F3D0`, text `#065F46`
+    - Peach tone: bg `#FFF7ED`, border `#FED7AA`, text `#9A3412`
+    - Blue tone: bg `#EFF6FF`, border `#BFDBFE`, text `#1E40AF`
+    - Pink tone: bg `#FDF2F8`, border `#FBCFE8`, text `#9D174D`
+    - Green chip: bg `#DCFCE7`, border `#BBF7D0`, text `#166534`
+    - Amber chip: bg `#FEF3C7`, border `#FDE68A`, text `#92400E`
+    - PDF chip: bg `#FEE2E2`, border `#FECACA`, text `#991B1B`
+    - DOCX chip: bg `#DBEAFE`, border `#BFDBFE`, text `#1E40AF`
+    - TXT chip: bg `#F3F4F6`, border `#E5E7EB`, text `#374151`
+  - Radii:
+    - Cards & chat input: `16px`
+    - Stat cards: `14px`
+    - Mini cards & callouts: `10px` - `12px`
+    - Navigation & chips: `9999px` (full pill)
+  - Typography:
+    - Font family: `'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif`
+    - Headings: `700` weight, `-0.02em` tracking
+- **Known Limitations**:
+  - CSS selectors target Streamlit's `data-testid` attributes (`stSidebar`, `stChatMessage`, `stChatInput`, `stVerticalBlockBorderWrapper`). If Streamlit alters these internal attributes in future major versions, the styles should be updated accordingly.
+- **Python Version**: Python 3.13.15
+- **Files Touched**:
+  - `.streamlit/config.toml`
+  - `src/ui/styles.css`
+  - `src/ui/theme.py`
+  - `src/ui/components.py`
+  - `app.py`
+  - `src/ui/chat_page.py`
+  - `src/ui/documents_page.py`
+  - `tests/test_ui_smoke.py`
+  - `docs/screenshots/.gitkeep`
+  - `README.md`
+  - `docs/PROGRESS.md`
+- **How it was tested**:
+  - Ran `pytest` across all test suites (44/44 tests passed).
+  - Verified XSS escaping on `<script>alert(1)</script>`.
+  - Verified marker injection `<!-- docmind-injected-styles -->`.
+  - Verified headless startup via `python -m streamlit run app.py --server.headless true` running cleanly without errors.
+  - Confirmed `.env` and `chroma_db/` remain untracked.
+
+

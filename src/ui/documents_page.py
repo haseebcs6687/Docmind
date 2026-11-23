@@ -8,6 +8,13 @@ import streamlit as st
 
 from src.config import MAX_UPLOAD_MB
 from src.loaders import load_directory, load_file
+from src.ui.components import (
+    demo_callout_card,
+    file_type_chip,
+    page_header,
+    stat_card,
+    stat_cards_grid,
+)
 from src.ui.state import clear_chat, get_store
 
 logger = logging.getLogger(__name__)
@@ -29,145 +36,150 @@ def compute_dir_hashes(directory: Path) -> Dict[str, str]:
 
 def render_documents_page() -> None:
     """Render the documents management interface."""
-    st.title("Document Management")
-    st.caption("Upload, inspect, and index legal documents into DocMind's persistent vector store.")
+    st.markdown(
+        page_header(
+            title="Document Management",
+            subtitle="Upload, inspect, and index legal documents into DocMind's persistent vector store.",
+        ),
+        unsafe_allow_html=True,
+    )
 
     store = get_store()
     sources = store.list_sources()
     doc_count = len(sources)
     chunk_count = store.count()
 
-    # Metrics row
-    col_m1, col_m2 = st.columns(2)
-    col_m1.metric("Indexed Documents", doc_count)
-    col_m2.metric("Total Chunks", chunk_count)
+    # Row of 4 pastel stat cards
+    cards = [
+        stat_card(label="Indexed Documents", value=str(doc_count), icon="📄", tone="mint"),
+        stat_card(label="Total Chunks", value=str(chunk_count), icon="🧩", tone="peach"),
+        stat_card(label="Free Quota", value="~1,000 / day", icon="⚡", tone="blue"),
+        stat_card(label="Supported Types", value="PDF, DOCX, TXT", icon="📁", tone="pink"),
+    ]
+    st.markdown(stat_cards_grid(cards), unsafe_allow_html=True)
 
-    # Disclaimers
-    st.info(
-        "ℹ️ **Fictional Demo Environment**: Sterling & Rauf Law Associates is a fictional law firm. "
-        "This system is for demonstration purposes only and does not constitute real legal advice. "
-        "Do not upload real confidential or sensitive documents."
+    # Demo callout disclaimer
+    st.markdown(
+        demo_callout_card(
+            "Fictional Demo Environment: Sterling & Rauf Law Associates is a fictional law firm. "
+            "This system is for demonstration purposes only and does not constitute real legal advice. "
+            "Do not upload real confidential or sensitive documents."
+        ),
+        unsafe_allow_html=True,
     )
-    st.caption(
-        "⚡ Powered by Gemini API free tier (~1,000 embedding requests/day). "
-        "Documents are chunked and embedded in batches of up to 20 to conserve quota."
-    )
-
-    st.markdown("---")
 
     # Sample Documents Section
-    st.subheader("Sample Law Firm Documents")
-    st.write(
-        "Pre-generated fictional law firm documents covering fee schedules, practice areas, "
-        "engagement letters, FAQs, dispute resolution policies, and conflict of interest SOPs."
-    )
+    with st.container(border=True):
+        st.subheader("Sample Law Firm Documents")
+        st.write(
+            "Pre-generated fictional law firm documents covering fee schedules, practice areas, "
+            "engagement letters, FAQs, dispute resolution policies, and conflict of interest SOPs."
+        )
 
-    sample_hashes = compute_dir_hashes(SAMPLE_DIR)
-    indexed_source_names = {s["name"] for s in sources}
-    all_sample_loaded = bool(sample_hashes) and all(name in indexed_source_names for name in sample_hashes.keys())
+        sample_hashes = compute_dir_hashes(SAMPLE_DIR)
+        indexed_source_names = {s["name"] for s in sources}
+        all_sample_loaded = bool(sample_hashes) and all(name in indexed_source_names for name in sample_hashes.keys())
 
-    btn_label = "Sample documents already loaded" if all_sample_loaded else "Load sample documents"
-    if st.button(btn_label, type="primary", disabled=all_sample_loaded, key="load_samples_btn"):
-        with st.spinner("Loading and indexing sample documents..."):
-            try:
-                units, load_report = load_directory(SAMPLE_DIR)
-                rep = store.index_units(units, sample_hashes)
-                st.success(
-                    f"Successfully indexed {len(rep['indexed_files'])} document(s) "
-                    f"({rep['total_chunks_added']} chunks added) in {rep['embedding_calls']} embedding call(s)."
-                )
-                if rep["skipped_files"]:
-                    st.info(f"Skipped {len(rep['skipped_files'])} unchanged document(s).")
-                st.rerun()
-            except Exception as e:
-                logger.error("Failed to index sample documents: %s", type(e).__name__)
-                st.error("Failed to load sample documents. Please try again.")
+        btn_label = "Sample documents already loaded" if all_sample_loaded else "Load sample documents"
+        if st.button(btn_label, type="secondary", disabled=all_sample_loaded, key="load_samples_btn"):
+            with st.spinner("Loading and indexing sample documents..."):
+                try:
+                    units, load_report = load_directory(SAMPLE_DIR)
+                    rep = store.index_units(units, sample_hashes)
+                    st.success(
+                        f"Successfully indexed {len(rep['indexed_files'])} document(s) "
+                        f"({rep['total_chunks_added']} chunks added) in {rep['embedding_calls']} embedding call(s)."
+                    )
+                    if rep["skipped_files"]:
+                        st.info(f"Skipped {len(rep['skipped_files'])} unchanged document(s).")
+                    st.rerun()
+                except Exception as e:
+                    logger.error("Failed to index sample documents: %s", type(e).__name__)
+                    st.error("Failed to load sample documents. Please try again.")
 
-    st.markdown("---")
+    # Upload Section (White rounded card)
+    with st.container(border=True):
+        st.subheader("Upload Documents")
+        st.write(f"Upload PDF, DOCX, or TXT documents (up to {MAX_UPLOAD_MB} MB each, maximum 10 files per batch).")
 
-    # Upload Section
-    st.subheader("Upload Documents")
-    st.write(f"Upload PDF, DOCX, or TXT documents (up to {MAX_UPLOAD_MB} MB each, maximum 10 files per batch).")
+        uploaded_files = st.file_uploader(
+            "Choose files to upload",
+            type=["pdf", "docx", "txt"],
+            accept_multiple_files=True,
+            key="file_uploader",
+        )
 
-    uploaded_files = st.file_uploader(
-        "Choose files to upload",
-        type=["pdf", "docx", "txt"],
-        accept_multiple_files=True,
-        key="file_uploader",
-    )
+        if uploaded_files:
+            if len(uploaded_files) > 10:
+                st.error("Maximum 10 files allowed per upload batch. Please remove some files.")
+            else:
+                if st.button("Index uploaded documents", type="primary", key="index_uploaded_btn"):
+                    with st.status("Indexing uploaded documents...", expanded=True) as status_box:
+                        total_chunks = 0
+                        indexed_count = 0
+                        max_bytes = MAX_UPLOAD_MB * 1024 * 1024
 
-    if uploaded_files:
-        if len(uploaded_files) > 10:
-            st.error("Maximum 10 files allowed per upload batch. Please remove some files.")
-        else:
-            if st.button("Index uploaded documents", type="primary", key="index_uploaded_btn"):
-                with st.status("Indexing uploaded documents...", expanded=True) as status_box:
-                    total_chunks = 0
-                    indexed_count = 0
-                    max_bytes = MAX_UPLOAD_MB * 1024 * 1024
-
-                    for uf in uploaded_files:
-                        filename = uf.name
-                        file_bytes = uf.getvalue()
-                        if len(file_bytes) > max_bytes:
-                            st.write(f"⚠️ `{filename}`: Exceeds {MAX_UPLOAD_MB} MB size limit. Skipped.")
-                            continue
-
-                        try:
-                            units = load_file(file_bytes, filename=filename)
-                            if not units:
-                                st.write(f"⚠️ `{filename}`: No readable text extracted. Skipped.")
+                        for uf in uploaded_files:
+                            filename = uf.name
+                            file_bytes = uf.getvalue()
+                            if len(file_bytes) > max_bytes:
+                                st.write(f"⚠️ `{filename}`: Exceeds {MAX_UPLOAD_MB} MB size limit. Skipped.")
                                 continue
 
-                            f_hash = hashlib.sha256(file_bytes).hexdigest()
-                            rep = store.index_units(units, {filename: f_hash})
+                            try:
+                                units = load_file(file_bytes, filename=filename)
+                                if not units:
+                                    st.write(f"⚠️ `{filename}`: No readable text extracted. Skipped.")
+                                    continue
 
-                            if rep["indexed_files"]:
-                                chunks_added = rep["total_chunks_added"]
-                                total_chunks += chunks_added
-                                indexed_count += 1
-                                st.write(f"✅ `{filename}`: Indexed successfully ({chunks_added} chunks).")
-                            elif rep["skipped_files"]:
-                                st.write(f"ℹ️ `{filename}`: Already indexed (unchanged).")
+                                f_hash = hashlib.sha256(file_bytes).hexdigest()
+                                rep = store.index_units(units, {filename: f_hash})
 
-                        except Exception as exc:
-                            logger.error("Failed indexing file '%s': %s", filename, type(exc).__name__)
-                            st.write(f"❌ `{filename}`: Failed to process ({type(exc).__name__}). Skipped.")
+                                if rep["indexed_files"]:
+                                    chunks_added = rep["total_chunks_added"]
+                                    total_chunks += chunks_added
+                                    indexed_count += 1
+                                    st.write(f"✅ `{filename}`: Indexed successfully ({chunks_added} chunks).")
+                                elif rep["skipped_files"]:
+                                    st.write(f"ℹ️ `{filename}`: Already indexed (unchanged).")
 
-                    status_box.update(
-                        label=f"Completed: Indexed {indexed_count} file(s) ({total_chunks} chunks).",
-                        state="complete",
-                        expanded=False,
-                    )
+                            except Exception as exc:
+                                logger.error("Failed indexing file '%s': %s", filename, type(exc).__name__)
+                                st.write(f"❌ `{filename}`: Failed to process ({type(exc).__name__}). Skipped.")
+
+                        status_box.update(
+                            label=f"Completed: Indexed {indexed_count} file(s) ({total_chunks} chunks).",
+                            state="complete",
+                            expanded=False,
+                        )
+                        st.rerun()
+
+    # Indexed Documents Section (White rounded card with clean table list)
+    with st.container(border=True):
+        st.subheader("Indexed Documents")
+        if not sources:
+            st.write("No documents are currently indexed.")
+        else:
+            # Table Header
+            h1, h2, h3, h4 = st.columns([5, 2, 2, 2])
+            h1.markdown("**Document Name**")
+            h2.markdown("**Format**")
+            h3.markdown("**Chunks**")
+            h4.markdown("**Action**")
+
+            for s in sources:
+                s_name = s["name"]
+                s_chunks = s["chunk_count"]
+                s_type = s.get("file_type") or "DOC"
+
+                c1, c2, c3, c4 = st.columns([5, 2, 2, 2])
+                c1.write(f"📄 {s_name}")
+                c2.markdown(file_type_chip(s_type), unsafe_allow_html=True)
+                c3.write(f"{s_chunks} chunks")
+                if c4.button("Delete", key=f"del_{s_name}", type="secondary"):
+                    deleted_chunks = store.delete_source(s_name)
+                    st.success(f"Deleted '{s_name}' ({deleted_chunks} chunks removed).")
                     st.rerun()
-
-    st.markdown("---")
-
-    # Indexed Documents Table
-    st.subheader("Indexed Documents")
-    if not sources:
-        st.write("No documents are currently indexed.")
-    else:
-        # Table Header
-        h1, h2, h3, h4 = st.columns([5, 2, 2, 2])
-        h1.markdown("**Document Name**")
-        h2.markdown("**Format**")
-        h3.markdown("**Chunks**")
-        h4.markdown("**Action**")
-
-        for s in sources:
-            s_name = s["name"]
-            s_chunks = s["chunk_count"]
-            s_type = (s.get("file_type") or "DOC").upper()
-
-            c1, c2, c3, c4 = st.columns([5, 2, 2, 2])
-            c1.write(f"📄 {s_name}")
-            c2.write(f"`{s_type}`")
-            c3.write(f"{s_chunks} chunks")
-            if c4.button("Delete", key=f"del_{s_name}", type="secondary"):
-                deleted_chunks = store.delete_source(s_name)
-                st.success(f"Deleted '{s_name}' ({deleted_chunks} chunks removed).")
-                st.rerun()
 
     # Danger Zone: Delete All
     st.markdown("---")

@@ -5,6 +5,7 @@ from typing import Any, Optional
 import streamlit as st
 
 from src.rag import GenerationError
+from src.ui.components import not_found_card, page_header, source_mini_card
 from src.ui.state import clear_chat, get_session, get_store, init_messages
 from src.vectorstore import EmbeddingError
 
@@ -25,21 +26,32 @@ def render_chat_page(documents_page: Optional[Any] = None) -> None:
 
     # Empty store state
     if chunk_count == 0:
-        st.title("DocMind Chat")
+        st.markdown(
+            page_header(
+                title="Ask your documents",
+                subtitle="Answers are grounded in the uploaded files and always cite their source.",
+            ),
+            unsafe_allow_html=True,
+        )
         st.info("No documents are currently indexed in DocMind.")
         st.markdown(
             "To begin asking questions with legal citations, head over to the "
             "**Documents** page to load sample documents or upload your own files."
         )
         if documents_page is not None:
-            st.page_link(documents_page, label="Go to Documents Page", icon="📁")
+            st.page_link(documents_page, label="Go to Documents Page", icon=":material/description:")
         return
 
-    # Populated store state
+    # Populated store state: Page header with Clear Conversation ghost button
     col_title, col_action = st.columns([5, 1])
     with col_title:
-        st.title("DocMind Chat")
-        st.caption("Ask questions cited directly from your indexed legal documents.")
+        st.markdown(
+            page_header(
+                title="Ask your documents",
+                subtitle="Answers are grounded in the uploaded files and always cite their source.",
+            ),
+            unsafe_allow_html=True,
+        )
     with col_action:
         if st.button("Clear conversation", key="clear_chat_btn", use_container_width=True):
             clear_chat()
@@ -67,24 +79,31 @@ def render_chat_page(documents_page: Optional[Any] = None) -> None:
                 found = msg.get("found", True)
                 content = msg.get("content", "")
                 if not found:
-                    st.warning(content)
+                    st.markdown(not_found_card(content), unsafe_allow_html=True)
                 else:
                     st.markdown(content)
                     sources = msg.get("sources", [])
                     if sources:
                         with st.expander(f"Sources ({len(sources)})", expanded=False):
                             for s in sources:
-                                score_pct = int(s.get("score", 0.0) * 100)
-                                label = s.get("label") or s.get("source", "Document")
-                                st.markdown(f"**{label}** &nbsp; `Relevance: {score_pct}%`")
-                                snippet = s.get("snippet", "").strip()
-                                if snippet:
-                                    st.markdown(f"> {snippet}")
-                                st.divider()
+                                citation_str = s.get("label") or s.get("citation") or s.get("source", "Document")
+                                score_val = s.get("score", 0.0)
+                                snippet_str = s.get("snippet", "").strip()
+                                st.markdown(
+                                    source_mini_card(
+                                        citation=citation_str,
+                                        score=score_val,
+                                        snippet=snippet_str,
+                                    ),
+                                    unsafe_allow_html=True,
+                                )
 
                 latency = msg.get("latency_seconds")
                 if latency is not None:
-                    st.caption(f"⏱️ Response time: {latency:.2f}s")
+                    st.markdown(
+                        f'<div class="latency-caption">⏱️ Response time: {latency:.2f}s</div>',
+                        unsafe_allow_html=True,
+                    )
 
     # Chat input widget (max 500 characters)
     user_input = st.chat_input("Ask a question about your documents...", max_chars=500)

@@ -1,0 +1,593 @@
+/* =============================================================================
+   DocMind Custom Theme Stylesheet
+   Design system: Clean dashboard style (near-black sidebar, light grey workspace,
+   white rounded cards, pastel stat cards, indigo accent #4F46E5).
+   ============================================================================= */
+
+/* -----------------------------------------------------------------------------
+   1. Typography & Global Resets
+   Target: Imports Plus Jakarta Sans with system sans-serif fallback.
+   ----------------------------------------------------------------------------- */
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
+
+html, body, [class*="css"], .stApp {
+    font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif !important;
+}
+
+/* Main application background and contrast text */
+.stApp {
+    background-color: #F5F6F8 !important;
+    color: #111827 !important;
+}
+
+/* Main workspace container padding and max-width */
+.main .block-container {
+    padding-top: 2rem !important;
+    padding-bottom: 3.5rem !important;
+    padding-left: 2.5rem !important;
+    padding-right: 2.5rem !important;
+    max-width: 1200px !important;
+}
+
+/* Headings font weight and tracking */
+h1, h2, h3, h4, h5, h6 {
+    font-weight: 700 !important;
+    color: #111827 !important;
+    letter-spacing: -0.02em !important;
+}
+
+/* -----------------------------------------------------------------------------
+   2. Sidebar Styling & Navigation
+   Target: [data-testid="stSidebar"] container and multi-page nav links.
+   ----------------------------------------------------------------------------- */
+[data-testid="stSidebar"] {
+    background-color: #0F1117 !important;
+    border-right: 1px solid #1F2430 !important;
+}
+
+/* Target: Navigation links rendered inside Streamlit sidebar */
+[data-testid="stSidebar"] a,
+[data-testid="stSidebarNav"] a {
+    border-radius: 9999px !important; /* Rounded pill shape */
+    padding: 0.55rem 1rem !important;
+    color: #9CA3AF !important;
+    font-weight: 500 !important;
+    font-size: 0.9rem !important;
+    transition: all 0.15s ease-in-out !important;
+    margin-bottom: 0.25rem !important;
+}
+
+/* Target: Hover state for sidebar navigation links */
+[data-testid="stSidebar"] a:hover,
+[data-testid="stSidebarNav"] a:hover {
+    background-color: #1F2430 !important;
+    color: #FFFFFF !important;
+}
+
+/* Target: Active page navigation pill highlight (aria-current="page") */
+[data-testid="stSidebar"] a[aria-current="page"],
+[data-testid="stSidebarNav"] a[aria-current="page"] {
+    background-color: #4F46E5 !important; /* Indigo accent */
+    color: #FFFFFF !important;
+    font-weight: 600 !important;
+    box-shadow: 0 2px 6px rgba(79, 70, 229, 0.35) !important;
+}
+
+/* Brand header block inside sidebar */
+.brand-block {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.5rem 0.25rem 1rem 0.25rem;
+}
+
+.brand-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    background: linear-gradient(135deg, #6366F1 0%, #4F46E5 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 2px 6px rgba(79, 70, 229, 0.4);
+    flex-shrink: 0;
+}
+
+.brand-title {
+    font-size: 1.15rem;
+    font-weight: 700;
+    color: #FFFFFF;
+    letter-spacing: -0.01em;
+    line-height: 1.2;
+}
+
+.brand-tagline {
+    font-size: 0.75rem;
+    color: #9CA3AF;
+    line-height: 1.2;
+    margin-top: 2px;
+}
+
+/* Section label (e.g. "WORKSPACE") in sidebar */
+.sidebar-section-label {
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #6B7280;
+    margin-top: 1.25rem;
+    margin-bottom: 0.5rem;
+    padding-left: 0.5rem;
+}
+
+/* Sidebar bottom status block */
+.sidebar-status-container {
+    padding: 1.25rem 0.25rem 0.5rem 0.25rem;
+    border-top: 1px solid #1F2430;
+    margin-top: 2rem;
+}
+
+.sidebar-status-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.35rem 0.75rem;
+    background-color: #1F2430;
+    color: #E5E7EB;
+    border-radius: 9999px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    border: 1px solid #2D3342;
+}
+
+.status-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background-color: #10B981; /* Green status dot */
+}
+
+.sidebar-demo-caption {
+    font-size: 0.7rem;
+    color: #6B7280;
+    margin-top: 0.4rem;
+    padding-left: 0.25rem;
+}
+
+/* -----------------------------------------------------------------------------
+   3. Page Header Component
+   ----------------------------------------------------------------------------- */
+.docmind-page-header {
+    margin-bottom: 1.75rem;
+}
+
+.docmind-page-header .page-title {
+    font-size: 1.85rem;
+    font-weight: 700;
+    color: #111827;
+    margin: 0 0 0.35rem 0;
+    letter-spacing: -0.025em;
+}
+
+.docmind-page-header .page-subtitle {
+    font-size: 0.95rem;
+    color: #4B5563;
+    margin: 0;
+    line-height: 1.4;
+}
+
+/* -----------------------------------------------------------------------------
+   4. Chat Messages & Conversational Bubbles
+   ----------------------------------------------------------------------------- */
+/* Target: Streamlit chat message baseline */
+div[data-testid="stChatMessage"] {
+    padding: 1rem 1.25rem !important;
+    margin-bottom: 1rem !important;
+    background: transparent !important;
+    border: none !important;
+}
+
+/* Target: User chat message (indigo-tinted bubble) */
+div[data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"]),
+div[data-testid="stChatMessage"][aria-label*="user"] {
+    background-color: #EEF2FF !important;
+    border: 1px solid #E0E7FF !important;
+    border-radius: 16px 16px 4px 16px !important;
+    margin-left: auto !important;
+    max-width: 85% !important;
+    box-shadow: 0 1px 2px rgba(79, 70, 229, 0.05) !important;
+}
+
+/* Target: Assistant chat message (white card with soft border) */
+div[data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarAssistant"]),
+div[data-testid="stChatMessage"][aria-label*="assistant"] {
+    background-color: #FFFFFF !important;
+    border: 1px solid #E5E7EB !important;
+    border-radius: 16px !important;
+    max-width: 95% !important;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04) !important;
+}
+
+/* -----------------------------------------------------------------------------
+   5. Source Mini Cards & Relevance Chips
+   ----------------------------------------------------------------------------- */
+.source-mini-card {
+    background-color: #FFFFFF;
+    border: 1px solid #E5E7EB;
+    border-radius: 10px;
+    padding: 0.75rem 0.95rem;
+    margin-bottom: 0.65rem;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
+}
+
+.source-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    margin-bottom: 0.35rem;
+}
+
+.source-label {
+    font-weight: 600;
+    font-size: 0.88rem;
+    color: #111827;
+}
+
+.relevance-chip {
+    display: inline-block;
+    padding: 0.15rem 0.55rem;
+    border-radius: 9999px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+}
+
+.chip-green {
+    background-color: #DCFCE7;
+    color: #166534;
+    border: 1px solid #BBF7D0;
+}
+
+.chip-amber {
+    background-color: #FEF3C7;
+    color: #92400E;
+    border: 1px solid #FDE68A;
+}
+
+.chip-muted {
+    background-color: #F3F4F6;
+    color: #4B5563;
+    border: 1px solid #E5E7EB;
+}
+
+.source-snippet {
+    color: #4B5563;
+    font-size: 0.82rem;
+    line-height: 1.45;
+    background-color: #F9FAFB;
+    padding: 0.45rem 0.65rem;
+    border-radius: 6px;
+    border-left: 3px solid #CBD5E1;
+    margin-top: 0.35rem;
+}
+
+.latency-caption {
+    font-size: 0.75rem;
+    color: #9CA3AF;
+    margin-top: 0.4rem;
+    padding-left: 0.25rem;
+}
+
+/* -----------------------------------------------------------------------------
+   6. Starter Questions Pill Buttons
+   Target: Widget key buttons with prefix starter_btn_
+   ----------------------------------------------------------------------------- */
+div[class*="st-key-starter_btn_"] > button {
+    border-radius: 9999px !important;
+    border: 1px solid #E5E7EB !important;
+    background-color: #FFFFFF !important;
+    color: #374151 !important;
+    font-size: 0.85rem !important;
+    font-weight: 500 !important;
+    padding: 0.55rem 1.15rem !important;
+    text-align: left !important;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03) !important;
+    transition: all 0.15s ease-in-out !important;
+}
+
+div[class*="st-key-starter_btn_"] > button:hover {
+    border-color: #4F46E5 !important;
+    color: #4F46E5 !important;
+    background-color: #EEF2FF !important;
+    transform: translateY(-1px);
+    box-shadow: 0 3px 6px rgba(79, 70, 229, 0.08) !important;
+}
+
+/* -----------------------------------------------------------------------------
+   7. Chat Input Styling
+   Target: [data-testid="stChatInput"] input box and container
+   ----------------------------------------------------------------------------- */
+div[data-testid="stChatInput"] {
+    border-radius: 16px !important;
+    background-color: #FFFFFF !important;
+    border: 1px solid #D1D5DB !important;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04) !important;
+    transition: border-color 0.2s, box-shadow 0.2s !important;
+}
+
+div[data-testid="stChatInput"]:focus-within {
+    border-color: #4F46E5 !important;
+    box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.2) !important;
+}
+
+div[data-testid="stChatInput"] textarea {
+    font-size: 0.95rem !important;
+    color: #111827 !important;
+}
+
+div[data-testid="stChatInput"] button {
+    color: #4F46E5 !important;
+}
+
+/* -----------------------------------------------------------------------------
+   8. Buttons: Primary, Secondary, Ghost
+   ----------------------------------------------------------------------------- */
+/* Target: Primary buttons */
+div[data-testid="stButton"] > button[kind="primary"],
+button[data-testid="baseButton-primary"] {
+    background-color: #4F46E5 !important;
+    border: 1px solid #4338CA !important;
+    color: #FFFFFF !important;
+    border-radius: 10px !important;
+    font-weight: 600 !important;
+    font-size: 0.88rem !important;
+    padding: 0.5rem 1.25rem !important;
+    box-shadow: 0 1px 2px rgba(79, 70, 229, 0.2) !important;
+    transition: all 0.15s ease-in-out !important;
+}
+
+div[data-testid="stButton"] > button[kind="primary"]:hover,
+button[data-testid="baseButton-primary"]:hover {
+    background-color: #4338CA !important;
+    border-color: #3730A3 !important;
+    transform: translateY(-1px);
+    box-shadow: 0 3px 8px rgba(79, 70, 229, 0.3) !important;
+}
+
+/* Target: Secondary buttons (e.g. Load sample documents) */
+div[data-testid="stButton"] > button[kind="secondary"],
+button[data-testid="baseButton-secondary"] {
+    background-color: #FFFFFF !important;
+    border: 1px solid #D1D5DB !important;
+    color: #374151 !important;
+    border-radius: 10px !important;
+    font-weight: 500 !important;
+    font-size: 0.88rem !important;
+    padding: 0.45rem 1.15rem !important;
+    transition: all 0.15s ease-in-out !important;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03) !important;
+}
+
+div[data-testid="stButton"] > button[kind="secondary"]:hover,
+button[data-testid="baseButton-secondary"]:hover {
+    background-color: #F9FAFB !important;
+    border-color: #9CA3AF !important;
+    color: #111827 !important;
+}
+
+/* Target: Ghost button for "Clear conversation" */
+.st-key-clear_chat_btn > button {
+    background: transparent !important;
+    border: 1px solid #E5E7EB !important;
+    color: #6B7280 !important;
+    border-radius: 8px !important;
+    font-size: 0.82rem !important;
+    font-weight: 500 !important;
+    padding: 0.35rem 0.75rem !important;
+    box-shadow: none !important;
+}
+
+.st-key-clear_chat_btn > button:hover {
+    background-color: #F3F4F6 !important;
+    color: #111827 !important;
+    border-color: #D1D5DB !important;
+}
+
+/* -----------------------------------------------------------------------------
+   9. Pastel Stat Cards Grid (Documents Page)
+   ----------------------------------------------------------------------------- */
+.stat-cards-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+@media (max-width: 1024px) {
+    .stat-cards-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+@media (max-width: 640px) {
+    .stat-cards-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+.stat-card {
+    border-radius: 14px;
+    padding: 1.15rem 1.25rem;
+    border: 1px solid transparent;
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+}
+
+.stat-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+}
+
+.stat-card-header {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    margin-bottom: 0.75rem;
+}
+
+.stat-card-icon {
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1rem;
+    flex-shrink: 0;
+}
+
+.stat-card-label {
+    font-size: 0.78rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.stat-card-value {
+    font-size: 1.55rem;
+    font-weight: 700;
+    line-height: 1.2;
+}
+
+/* Mint Tone */
+.stat-card-mint {
+    background-color: #ECFDF5;
+    border-color: #A7F3D0;
+}
+.stat-card-mint .stat-card-icon {
+    background-color: #D1FAE5;
+}
+.stat-card-mint .stat-card-label {
+    color: #047857;
+}
+.stat-card-mint .stat-card-value {
+    color: #065F46;
+}
+
+/* Peach Tone */
+.stat-card-peach {
+    background-color: #FFF7ED;
+    border-color: #FED7AA;
+}
+.stat-card-peach .stat-card-icon {
+    background-color: #FFEDD5;
+}
+.stat-card-peach .stat-card-label {
+    color: #C2410C;
+}
+.stat-card-peach .stat-card-value {
+    color: #9A3412;
+}
+
+/* Blue Tone */
+.stat-card-blue {
+    background-color: #EFF6FF;
+    border-color: #BFDBFE;
+}
+.stat-card-blue .stat-card-icon {
+    background-color: #DBEAFE;
+}
+.stat-card-blue .stat-card-label {
+    color: #1D4ED8;
+}
+.stat-card-blue .stat-card-value {
+    color: #1E40AF;
+}
+
+/* Pink Tone */
+.stat-card-pink {
+    background-color: #FDF2F8;
+    border-color: #FBCFE8;
+}
+.stat-card-pink .stat-card-icon {
+    background-color: #FCE7F3;
+}
+.stat-card-pink .stat-card-label {
+    color: #BE185D;
+}
+.stat-card-pink .stat-card-value {
+    color: #9D174D;
+}
+
+/* -----------------------------------------------------------------------------
+   10. Callout Cards & Amber Notices
+   ----------------------------------------------------------------------------- */
+.callout-card-amber {
+    background-color: #FFFBEB;
+    border: 1px solid #FDE68A;
+    border-radius: 12px;
+    padding: 0.9rem 1.15rem;
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    color: #92400E;
+    font-size: 0.88rem;
+    line-height: 1.45;
+    margin-bottom: 1.25rem;
+}
+
+.callout-card-amber .callout-icon {
+    font-size: 1.1rem;
+    line-height: 1.2;
+    flex-shrink: 0;
+}
+
+/* -----------------------------------------------------------------------------
+   11. White Card Containers & File Type Chips
+   ----------------------------------------------------------------------------- */
+/* Target: Streamlit bordered containers */
+div[data-testid="stVerticalBlockBorderWrapper"] {
+    background-color: #FFFFFF !important;
+    border: 1px solid #E5E7EB !important;
+    border-radius: 16px !important;
+    padding: 1.5rem !important;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04) !important;
+    margin-bottom: 1.5rem !important;
+}
+
+/* File format chips */
+.type-chip {
+    display: inline-block;
+    padding: 0.15rem 0.55rem;
+    border-radius: 6px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+}
+
+.type-chip-pdf {
+    background-color: #FEE2E2;
+    color: #991B1B;
+    border: 1px solid #FECACA;
+}
+
+.type-chip-docx {
+    background-color: #DBEAFE;
+    color: #1E40AF;
+    border: 1px solid #BFDBFE;
+}
+
+.type-chip-txt {
+    background-color: #F3F4F6;
+    color: #374151;
+    border: 1px solid #E5E7EB;
+}
+
+.type-chip-generic {
+    background-color: #F3F4F6;
+    color: #4B5563;
+    border: 1px solid #E5E7EB;
+}

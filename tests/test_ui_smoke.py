@@ -6,6 +6,13 @@ import pytest
 from streamlit.testing.v1 import AppTest
 
 from src.rag import ChatSession, RagResponse
+from src.ui.components import (
+    demo_callout_card,
+    file_type_chip,
+    source_mini_card,
+    stat_card,
+)
+from src.ui.theme import STYLES_FILE
 from src.vectorstore import VectorStore
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -122,8 +129,9 @@ def test_populated_store_starter_button_click():
 
 
 def test_documents_page_renders_metrics_and_sources():
-    """Verify that the documents page displays metrics, disclaimers, and indexed files."""
+    """Verify that the documents page displays stat cards, disclaimers, and indexed files."""
     mock_store = mock.MagicMock(spec=VectorStore)
+    mock_store.count.value = 25
     mock_store.count.return_value = 25
     mock_store.list_sources.return_value = [
         {"name": "Fee_Schedule_2026.pdf", "chunk_count": 15, "file_type": "pdf"},
@@ -137,14 +145,66 @@ def test_documents_page_renders_metrics_and_sources():
         at.run()
 
         assert len(at.exception) == 0, f"Documents page exceptions: {at.exception}"
-        # Metrics check
-        metric_labels = [m.label for m in at.metric]
-        assert "Indexed Documents" in metric_labels
-        assert "Total Chunks" in metric_labels
+        markdown_values = [m.value for m in at.markdown]
 
-        metric_vals = [m.value for m in at.metric]
-        assert 2 in metric_vals or "2" in metric_vals
-        assert 25 in metric_vals or "25" in metric_vals
+        # Verify pastel stat cards content
+        assert any("Indexed Documents" in val for val in markdown_values)
+        assert any("Total Chunks" in val for val in markdown_values)
+        assert any("Free Quota" in val for val in markdown_values)
+        assert any("Supported Types" in val for val in markdown_values)
+        assert any("25" in val for val in markdown_values)
 
-        # Disclaimers
-        assert any("Sterling & Rauf Law Associates is a fictional law firm" in info.value for info in at.info)
+        # Verify disclaimer callout card
+        assert any(
+            "Sterling &amp; Rauf" in val and "fictional law firm" in val
+            for val in markdown_values
+        )
+
+
+def test_html_escaping_prevents_xss():
+    """Verify that malicious script tags in filenames and snippets are escaped to prevent XSS injection."""
+    malicious_input = "<script>alert(1)</script>"
+
+    # Source mini card
+    card_html = source_mini_card(citation=malicious_input, score=0.88, snippet=malicious_input)
+    assert "<script>" not in card_html
+    assert "</script>" not in card_html
+    assert "&lt;script&gt;alert(1)&lt;/script&gt;" in card_html
+
+    # File type chip
+    chip_html = file_type_chip(malicious_input)
+    assert "<script>" not in chip_html.lower()
+    assert "</script>" not in chip_html.lower()
+    assert "&lt;script&gt;alert(1)&lt;/script&gt;" in chip_html.lower()
+
+    # Stat card
+    stat_html = stat_card(label=malicious_input, value=malicious_input, icon=malicious_input, tone="mint")
+    assert "<script>" not in stat_html
+    assert "&lt;script&gt;alert(1)&lt;/script&gt;" in stat_html
+
+    # Demo callout card
+    callout_html = demo_callout_card(malicious_input)
+    assert "<script>" not in callout_html
+    assert "&lt;script&gt;alert(1)&lt;/script&gt;" in callout_html
+
+
+def test_styles_css_exists_and_injected():
+    """Verify that styles.css exists on disk and is injected into the Streamlit app with marker comment."""
+    assert STYLES_FILE.exists(), "styles.css must exist in src/ui/styles.css"
+    assert STYLES_FILE.stat().st_size > 0, "styles.css must not be empty"
+
+    mock_store = mock.MagicMock(spec=VectorStore)
+    mock_store.count.return_value = 0
+    mock_store.list_sources.return_value = []
+
+    with mock.patch("src.ui.state.get_store", return_value=mock_store), \
+         mock.patch("src.ui.chat_page.get_store", return_value=mock_store), \
+         mock.patch("app.get_store", return_value=mock_store):
+        at = AppTest.from_file(APP_PATH, default_timeout=15)
+        at.run()
+
+        assert len(at.exception) == 0, f"App raised exceptions: {at.exception}"
+        markdown_values = [m.value for m in at.markdown]
+        assert any("<!-- docmind-injected-styles -->" in val for val in markdown_values), (
+            "Custom styles marker comment was not found in injected markdown."
+        )

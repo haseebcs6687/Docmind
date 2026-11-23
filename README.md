@@ -13,7 +13,7 @@ DocMind is configured with a fictional law firm demo dataset (**Sterling & Rauf 
 - **Multi-Turn Chat with Query Rewriting**: Follow-up questions referencing previous context ("what about associates?", "is it refundable?") are automatically resolved into standalone search queries.
 - **Rule-Based Small-Talk Filter**: Instant canned responses for greetings, thanks, goodbyes, and capabilities with 0 latency and 0 API calls.
 - **Incremental & Deterministic Indexing**: Files are fingerprinted with SHA-256 hashes to prevent redundant embeddings.
-- **Modern Streamlit UI**: Dark sidebar with live corpus stats, responsive chat interface with starter questions, expandable source previews with relevance percentage chips, and document management with multi-file upload.
+- **Modern Streamlit UI**: Clean dashboard theme featuring a near-black sidebar (`#0F1117`) with workspace navigation pills and live corpus stats, light grey workspace (`#F5F6F8`), white rounded cards, pastel stat cards, responsive chat interface with starter questions, expandable source previews with relevance percentage chips, and document management with multi-file upload.
 - **Privacy & Safety**: Automatic redaction prevents API keys or stack traces from leaking to client UI or application logs.
 
 ---
