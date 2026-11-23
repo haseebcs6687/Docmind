@@ -226,3 +226,55 @@
   - `tests/test_vectorstore.py`
   - `tests/test_rag.py`
   - `docs/PROGRESS.md`
+
+## Step 7: Multi-Turn Chat Sessions, Query Rewriting & Deterministic Ingestion
+- **What was built**:
+  - Part A (Dataset Consistency & Determinism):
+    - Reconciled Fee Schedule clause 1.2 to eliminate the extraneous retainer requirement, harmonizing all documents to state that the PKR 5,000 consultation fee is waived if the client executes an engagement agreement within 7 days.
+    - Implemented byte-identical deterministic document generation in `scripts/generate_sample_docs.py` by enabling ReportLab `invariant=1` across all PDF templates/canvas and normalizing python-docx core properties and zip entry timestamps to fixed UTC timestamps (`2026-01-01 00:00:00`).
+    - Verified identical SHA-256 hashes across repeated generation runs.
+    - Re-indexed vector database: only changed files re-embedded on initial update; subsequent runs verify 0 embedding calls.
+    - Verified `eval/dataset_facts.md` table structure (41 distinct ground-truth facts on lines 11–51).
+  - Part B (Citation Precision):
+    - Updated `src/rag.py` generation system prompt instructing Gemini to include in `used_sources` ONLY passages that directly state a fact used in the answer (typically 1-3), excluding merely related context.
+  - Part C (Quiet Logs):
+    - Created `src/logging_setup.py` setting `httpx`, `httpcore`, `google_genai`, `chromadb`, and `urllib3` loggers to `WARNING` and disabling propagation, suppressing HTTP request line logs and AFC messages while preserving `[Retry]` logging.
+  - Part D (Multi-Turn Chat Sessions & Follow-up Rewriting):
+    - Added `HISTORY_TURNS = 4` setting in `src/config.py`.
+    - Added `standalone_question: str` attribute to `RagResponse`.
+    - Implemented `ChatSession` in `src/rag.py`:
+      - Maintains per-instance conversation history of `(question, answer)` for turns where `found=True`.
+      - Strict rule-based small-talk filter (`check_small_talk`): answers greetings, thanks, goodbyes, and capabilities instantly with 0 API calls, without swallowing substantive legal questions.
+      - Query reformulation via `_rewrite_question()`: rephrases follow-up questions containing pronouns or ellipsis ("it", "and what about the paralegal?") into complete standalone queries using truncated conversation history.
+      - Fallback safety: returns original question if rewrite is empty, exceeds 300 characters, or encounters transient errors.
+      - Excludes not-found queries from history to avoid polluting future conversational turns.
+      - Independent per-instance state and `reset()` method.
+  - Part E (Unit Tests):
+    - Added comprehensive unit test coverage in `tests/test_rag.py` covering small-talk filtering, query reformulation with history, empty history bypass, fallback on rewrite failure, history window capping, and session state isolation.
+    - `pytest`: 38/38 tests passing.
+  - Part F (Scripted Conversational Demo):
+    - Created `scripts/chat_demo.py` executing a 7-turn scripted conversation:
+      - Turn 1: Lawyer rates (PKR 25k, 12k, 4k; cited FAQ Q&A 3).
+      - Turn 2: Follow-up on paralegal (rewritten to standalone; answered PKR 4,000/hr).
+      - Turn 3: Family law retainer (answered PKR 75,000).
+      - Turn 4: Follow-up on refundability (rewritten with family law retainer context; answered refund within 30 days minus 10% administrative deduction).
+      - Turn 5: "thanks!" (canned reply, 0 API calls, 0.0 ms latency).
+      - Turn 6: Immigration practice query (answered not handled, cited brochure & FAQ).
+      - Turn 7: Follow-up on parking (rewritten to standalone; returned not found; omitted from history).
+- **Known Limitations**:
+  - Extra API Call on Follow-ups: Conversational follow-ups with history incur 1 additional LLM generation call to rewrite the query into standalone form before retrieval.
+  - History Truncation: Conversations exceeding `HISTORY_TURNS=4` drop earlier turns from the reformulation context.
+- **Files Touched**:
+  - `scripts/generate_sample_docs.py`
+  - `data/sample_docs/Fee_Schedule_2026.pdf`
+  - `data/sample_docs/Practice_Areas_Brochure.pdf`
+  - `data/sample_docs/Client_Intake_SOP.pdf`
+  - `data/sample_docs/Confidentiality_and_Data_Policy.pdf`
+  - `data/sample_docs/Client_Engagement_Letter_Template.docx`
+  - `data/sample_docs/Client_FAQ.txt`
+  - `src/config.py`
+  - `src/logging_setup.py`
+  - `src/rag.py`
+  - `tests/test_rag.py`
+  - `scripts/chat_demo.py`
+  - `docs/PROGRESS.md`

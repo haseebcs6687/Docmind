@@ -9,9 +9,12 @@ Generates realistic legal documents for 'Sterling & Rauf Law Associates' in data
 - Client_FAQ.txt (UTF-8 English FAQ)
 """
 
+import datetime
+import io
 import os
 from pathlib import Path
 from typing import Dict, List, Tuple
+import zipfile
 
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -41,6 +44,7 @@ class NumberedCanvas(canvas.Canvas):
     page_counts: Dict[str, int] = {}
 
     def __init__(self, *args, **kwargs):
+        kwargs["invariant"] = 1
         super().__init__(*args, **kwargs)
         self._saved_page_states: List[dict] = []
 
@@ -186,6 +190,7 @@ def build_fee_schedule_pdf(output_path: Path) -> None:
         rightMargin=54,
         topMargin=60,
         bottomMargin=54,
+        invariant=1,
     )
     styles = get_pdf_styles()
     story = []
@@ -204,8 +209,8 @@ def build_fee_schedule_pdf(output_path: Path) -> None:
         styles["LegalBody"],
     ))
     story.append(Paragraph(
-        "1.2. <b>Engagement Waiver Clause:</b> If the prospective client executes a formal Letter of Engagement and deposits the required "
-        "retainer within <b>7 days</b> of the initial consultation, the <b>PKR 5,000 consultation fee is fully waived</b> and credited "
+        "1.2. <b>Engagement Waiver Clause:</b> If the prospective client executes a formal Letter of Engagement within "
+        "<b>7 days</b> of the initial consultation, the <b>PKR 5,000 consultation fee is fully waived</b> and credited "
         "towards the client's opening invoice balance.",
         styles["LegalBody"],
     ))
@@ -419,6 +424,7 @@ def build_practice_areas_pdf(output_path: Path) -> None:
         rightMargin=54,
         topMargin=60,
         bottomMargin=54,
+        invariant=1,
     )
     styles = get_pdf_styles()
     story = []
@@ -593,6 +599,7 @@ def build_intake_sop_pdf(output_path: Path) -> None:
         rightMargin=54,
         topMargin=60,
         bottomMargin=54,
+        invariant=1,
     )
     styles = get_pdf_styles()
     story = []
@@ -786,6 +793,7 @@ def build_data_policy_pdf(output_path: Path) -> None:
         rightMargin=54,
         topMargin=60,
         bottomMargin=54,
+        invariant=1,
     )
     styles = get_pdf_styles()
     story = []
@@ -916,6 +924,13 @@ def build_data_policy_pdf(output_path: Path) -> None:
 def build_engagement_letter_docx(output_path: Path) -> None:
     """Generate Client_Engagement_Letter_Template.docx (2+ pages of structured text)."""
     doc = Document()
+
+    # Fixed core properties for deterministic generation
+    fixed_dt = datetime.datetime(2026, 1, 1, 0, 0, 0, tzinfo=datetime.timezone.utc)
+    doc.core_properties.created = fixed_dt
+    doc.core_properties.modified = fixed_dt
+    doc.core_properties.last_printed = fixed_dt
+    doc.core_properties.revision = 1
 
     # Set margins
     for sec in doc.sections:
@@ -1051,7 +1066,20 @@ def build_engagement_letter_docx(output_path: Path) -> None:
     sig_table.rows[0].cells[0].text = "FOR THE CLIENT:\n\n\n__________________________________\nAuthorized Signature / Thumb Impression\nName:\nCNIC / Passport No.:\nDate:"
     sig_table.rows[0].cells[1].text = "FOR STERLING & RAUF LAW ASSOCIATES:\n\n\n__________________________________\nBarrister Tariq Sterling / Ayesha Rauf\nSenior Partner / Managing Partner\nDate:"
 
-    doc.save(str(output_path))
+    # Save with normalized zip entry timestamps for deterministic generation
+    buf = io.BytesIO()
+    doc.save(buf)
+    buf.seek(0)
+    fixed_time = (2026, 1, 1, 0, 0, 0)
+    out_buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "r") as zin:
+        with zipfile.ZipFile(out_buf, "w", compression=zipfile.ZIP_DEFLATED) as zout:
+            for item in zin.infolist():
+                data = zin.read(item.filename)
+                zinfo = zipfile.ZipInfo(filename=item.filename, date_time=fixed_time)
+                zinfo.compress_type = zipfile.ZIP_DEFLATED
+                zout.writestr(zinfo, data)
+    output_path.write_bytes(out_buf.getvalue())
 
 
 def build_client_faq_txt(output_path: Path) -> None:

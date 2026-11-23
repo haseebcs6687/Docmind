@@ -1,14 +1,16 @@
-"""Unit tests for the DocMind RAG pipeline and guardrails."""
+"""Unit tests for the DocMind RAG pipeline, guardrails, and chat sessions."""
 
 import json
 from unittest.mock import MagicMock
 import pytest
 
 from src.rag import (
+    ChatSession,
     GenerationError,
     RagResponse,
     _call_gemini_with_retry,
     answer,
+    check_small_talk,
     NOT_FOUND,
 )
 
@@ -19,8 +21,10 @@ class MockStore:
     def __init__(self, results=None, doc_count=5):
         self.results = results if results is not None else []
         self._doc_count = doc_count
+        self.last_query = None
 
     def query(self, question, k=5):
+        self.last_query = question
         return self.results
 
     def count(self):
@@ -222,3 +226,176 @@ def test_empty_vector_store():
     assert resp.answer == NOT_FOUND
     assert resp.sources == []
     assert resp.top_score == 0.0
+
+
+# 8. Used sources precision instruction present in system prompt
+def test_used_sources_precision_instruction_in_system_prompt():
+    results = _sample_context_results(scores=(0.85,))
+    store = MockStore(results=results)
+
+    captured_system_instruction = ""
+
+    def mock_llm(system_instruction, prompt):
+        nonlocal captured_system_instruction
+        captured_system_instruction = system_instruction
+        return json.dumps({"found": True, "answer": "OK", "used_sources": [1]})
+
+    answer("What is the fee?", store=store, llm=mock_llm)
+    assert "In used_sources, list ONLY passages that directly state a fact used in the answer" in captured_system_instruction
+
+
+# ---------------- Part D & E Tests: ChatSession & Follow-up Rewriting ----------------
+
+# 9. Small-talk replies make 0 calls and don't swallow substantive questions
+def test_small_talk_handler_makes_zero_calls():
+    session = ChatSession()
+
+    for phrase in ["hi", "Hello!", "Good morning", "thanks", "thank you so much", "bye", "what can you do"]:
+        resp = session.ask(phrase)
+        assert resp.found is True
+        assert resp.api_calls == 0
+        assert resp.sources == []
+        assert len(resp.answer) > 0
+
+
+def test_small_talk_does_not_swallow_real_questions():
+    # Questions that start with greeting words must NOT be swallowed by small talk
+    assert check_small_talk("Hi, what are your office hours?") is None
+    assert check_small_talk("Hello, how much is the consultation fee?") is None
+    assert check_small_talk("Good morning, do you handle corporate matters?") is None
+    assert check_small_talk("Thanks, but what is the retainer fee?") is None
+
+
+# 10. Rewrite is NOT called with empty history
+def test_rewrite_not_called_with_empty_history():
+    results = _sample_context_results(scores=(0.88,))
+    store = MockStore(results=results)
+
+    rewrite_called = False
+
+    def mock_llm(sys_inst, prompt):
+        nonlocal rewrite_called
+        if "query reformulation" in (sys_inst or "") or "Standalone Question:" in prompt:
+            rewrite_called = True
+            return "Rewritten question"
+        return json.dumps({"found": True, "answer": "Answer 1", "used_sources": [1]})
+
+    session = ChatSession(store=store, llm=mock_llm)
+    resp = session.ask("What is the consultation fee?")
+
+    assert not rewrite_called
+    assert resp.standalone_question == "What is the consultation fee?"
+    assert resp.api_calls == 2  # 1 embed + 1 generation
+
+
+# 11. Rewrite IS called with history and output is used for retrieval
+def test_rewrite_called_with_history_and_used_for_retrieval():
+    results = _sample_context_results(scores=(0.88,))
+    store = MockStore(results=results)
+
+    call_types = []
+
+    def mock_llm(sys_inst, prompt):
+        if "Standalone Question:" in prompt:
+            call_types.append("rewrite")
+            return "What are the hourly rates for a paralegal?"
+        call_types.append("generation")
+        return json.dumps({"found": True, "answer": "Paralegal rate is PKR 4,000/hr.", "used_sources": [1]})
+
+    session = ChatSession(store=store, llm=mock_llm)
+
+    # Turn 1: Initial question
+    resp1 = session.ask("What are the hourly rates for each lawyer level?")
+    assert resp1.found is True
+    assert len(session.history) == 1
+
+    # Turn 2: Follow-up question requiring rewrite
+    resp2 = session.ask("And what about the paralegal?")
+    assert "rewrite" in call_types
+    assert resp2.standalone_question == "What are the hourly rates for a paralegal?"
+    assert store.last_query == "What are the hourly rates for a paralegal?"
+    assert resp2.api_calls == 3  # 1 rewrite + 1 embed + 1 generation
+
+
+# 12. Invalid, too-long, or failed rewrite falls back to original question
+def test_rewrite_failure_falls_back_to_original_question():
+    results = _sample_context_results(scores=(0.88,))
+    store = MockStore(results=results)
+
+    rewrite_mode = "error"
+
+    def mock_llm(sys_inst, prompt):
+        if "Standalone Question:" in prompt:
+            if rewrite_mode == "error":
+                raise Exception("Network error during rewrite")
+            elif rewrite_mode == "too_long":
+                return "This is a ridiculously long rewritten question " * 20  # > 300 chars
+            elif rewrite_mode == "empty":
+                return ""
+        return json.dumps({"found": True, "answer": "Fallback answered.", "used_sources": [1]})
+
+    session = ChatSession(store=store, llm=mock_llm)
+    session.history.append(("What are the hourly rates?", "Senior partner is 25,000/hr."))
+
+    # Case A: Rewrite raises exception
+    rewrite_mode = "error"
+    resp_err = session.ask("And the paralegal?")
+    assert resp_err.standalone_question == "And the paralegal?"
+    assert store.last_query == "And the paralegal?"
+
+    # Case B: Rewrite too long
+    rewrite_mode = "too_long"
+    resp_long = session.ask("And the paralegal?")
+    assert resp_long.standalone_question == "And the paralegal?"
+
+    # Case C: Rewrite empty
+    rewrite_mode = "empty"
+    resp_empty = session.ask("And the paralegal?")
+    assert resp_empty.standalone_question == "And the paralegal?"
+
+
+# 13. History keeps only last HISTORY_TURNS turns and excludes not-found turns
+def test_history_capping_and_not_found_exclusion():
+    results_found = _sample_context_results(scores=(0.88,))
+    results_not_found = _sample_context_results(scores=(0.50,))  # below 0.65 threshold
+    store = MockStore(results=results_found)
+
+    def mock_llm(sys_inst, prompt):
+        if "Standalone Question:" in prompt:
+            return "Standalone query"
+        return json.dumps({"found": True, "answer": "Found answer.", "used_sources": [1]})
+
+    session = ChatSession(store=store, llm=mock_llm, history_turns=3)
+
+    # 4 successful turns -> history should only retain the last 3
+    for i in range(1, 5):
+        session.ask(f"Question {i}")
+    assert len(session.history) == 3
+    assert session.history[0][0] == "Question 2"
+    assert session.history[2][0] == "Question 4"
+
+    # Turn with not-found result -> must NOT be added to history
+    store.results = results_not_found
+    resp_nf = session.ask("Out of scope question")
+    assert resp_nf.found is False
+    assert len(session.history) == 3
+    assert "Out of scope question" not in [h[0] for h in session.history]
+
+
+# 14. Reset clears session history
+def test_session_reset():
+    session = ChatSession()
+    session.history.append(("Q1", "A1"))
+    assert len(session.history) == 1
+    session.reset()
+    assert len(session.history) == 0
+
+
+# 15. Two sessions don't share state
+def test_two_sessions_do_not_share_state():
+    s1 = ChatSession()
+    s2 = ChatSession()
+
+    s1.history.append(("S1 Question", "S1 Answer"))
+    assert len(s1.history) == 1
+    assert len(s2.history) == 0

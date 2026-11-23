@@ -3,9 +3,11 @@
 import os
 from typing import Optional
 from dotenv import load_dotenv
+from src.logging_setup import configure_logging
 
-# Load variables from .env file
+# Load variables from .env file and silence noisy third-party loggers
 load_dotenv()
+configure_logging()
 
 # Optional model configurations (read from environment, no defaults guessed)
 GEMINI_MODEL: Optional[str] = os.getenv("GEMINI_MODEL", "").strip() or None
@@ -26,6 +28,7 @@ TOP_K: int = int(os.getenv("TOP_K", "5"))
 SCORE_THRESHOLD: float = float(os.getenv("SCORE_THRESHOLD", "0.65"))
 GEN_TEMPERATURE: float = float(os.getenv("GEN_TEMPERATURE", "0.1"))
 GEN_MAX_RETRIES: int = int(os.getenv("GEN_MAX_RETRIES", "5"))
+HISTORY_TURNS: int = int(os.getenv("HISTORY_TURNS", "4"))
 
 
 def get_gemini_api_key() -> str:
