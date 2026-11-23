@@ -426,6 +426,7 @@ def generate_rag_answer(
                 "page": results[idx - 1].get("page"),
                 "section": results[idx - 1].get("section"),
                 "snippet": (results[idx - 1].get("text") or "")[:200],
+                "text": results[idx - 1].get("text", ""),
                 "score": results[idx - 1].get("score", 0.0),
                 "visibility": results[idx - 1].get("visibility", "staff"),
                 "practice_area": results[idx - 1].get("practice_area", "General"),

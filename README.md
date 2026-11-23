@@ -10,6 +10,16 @@ DocMind is configured with a fictional law firm demo dataset (**Sterling & Rauf 
 
 - **Strict Source Citations**: Every factual claim is backed by citations to specific document files and page/section numbers.
 - **Dual Anti-Hallucination Guardrails**: Retrieval similarity score gating (threshold 0.65) combined with structured JSON schema verification (`found: bool`, `used_sources: list[int]`).
+- **Draft Client Reply (Staff-Only)**:
+  - **Grounded Email Drafting**: Drafts concise, professional emails from law firm staff to clients using ONLY verified RAG answers and cited source passages (under 170 words, no promises, guarantees, or hallucinated facts).
+  - **Automated Numeric Faithfulness Check**: Extracts and normalizes numeric tokens (amounts like PKR 5,000, percentages like 2%, day counts like 7 days, times like 9:30 AM; excluding calendar years, dates, and names) and compares them with the cited sources. Flags any unverified figures in an interactive amber alert card.
+  - **Tone & Personalization Options**: Choose between Formal and Friendly tone, customize client name and staff sender name, optionally cite document names, and download the finalized reply as a `.txt` file.
+  - **Server-Side Role Guard & Rate Limits**: Restricted to Staff mode (ghost button is absent in Client mode; core function raises `DraftAccessError`); protected by session limit (`MAX_DRAFTS_PER_SESSION=15`) and a 3-second cooldown.
+- **Research Memo Export (Staff & Client)**:
+  - **Instant DOCX Generation**: Generates a professional Microsoft Word research memo (`.docx`) summarizing all answered findings, cited documents with relevance match percentages, verbatim italicized snippets, and an "Open items" section for unresolved queries.
+  - **Zero API Calls**: Generated purely in memory from in-session messages using `python-docx` (0 Gemini embedding calls, 0 generation calls, 0 vector store queries).
+  - **Structured Document Architecture**: Features firm branding, 2-column metadata table (Date, Prepared by, View, Questions answered), findings headings, open items bullet list, legal disclaimer, and dynamic Word page number footer.
+  - **Strict Session Privacy**: Client view memos only include content displayed in the client's session, preventing staff policy leaks.
 - **Contract Key-Terms Analyzer (Staff-Only)**:
   - **14 Predefined Contract Fields**: Automated extraction of `contract_type`, `parties`, `effective_date`, `term`, `renewal`, `payment`, `late_payment`, `termination`, `liability`, `confidentiality`, `governing_law`, `dispute_resolution`, `signatories`, and `force_majeure`.
   - **Verbatim Citation Verification**: Extracted quotes are rigorously verified against original document units using whitespace/case normalization and multi-fragment splitting (`...`, `…`, `\n`, `. `). Chunks with unverified or hallucinated quotes are explicitly flagged with red `Unverified` status chips.
@@ -119,6 +129,8 @@ Navigate to `http://localhost:8501` in your browser.
 - **Documents Page**: View indexed document metrics, load sample documents, upload custom PDF/DOCX/TXT files, or manage/delete sources.
 - **Contract Analyzer Page** *(Staff mode only)*: Select indexed contracts or upload arbitrary documents for instant 14-field extraction with verified source citations and CSV export.
 
+> *Note: UI screenshots can be captured and reviewed in `docs/ui-reference/`.*
+
 ---
 
 ## Command-Line Scripts
@@ -140,6 +152,10 @@ Navigate to `http://localhost:8501` in your browser.
   ```bash
   python scripts/check_contracts.py
   ```
+- **Verify client reply drafting and research memo export**:
+  ```bash
+  python scripts/check_drafting.py
+  ```
 - **Run latency probe across models & thinking levels**:
   ```bash
   python scripts/latency_probe.py
@@ -149,7 +165,7 @@ Navigate to `http://localhost:8501` in your browser.
 
 ## Running Tests
 
-Run the offline pytest test suite (94 tests, 0 real API calls):
+Run the offline pytest test suite (114 tests, 0 real API calls):
 
 ```bash
 python -m pytest

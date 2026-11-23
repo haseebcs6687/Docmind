@@ -624,6 +624,82 @@
   - Headless Streamlit test: verified clean startup on port 8502.
   - Git status: `.env` and `chroma_db/` remain strictly untracked.
 
+## Step 13: Draft Client Reply, Research Memo Export, and Step 12 Auditing
+- **What was built**:
+  - **PART A - Verification & Auditing of Step 12**:
+    - **Chunk Count Audit (A1)**:
+      - Audited all 8 sources in ChromaDB:
+        - `Client_Engagement_Letter_Template.docx`: 13 chunks (client, Contracts)
+        - `Client_FAQ.txt`: 19 chunks (client, General)
+        - `Fee_Schedule_2026.pdf`: 11 chunks (client, Billing & Fees)
+        - `Practice_Areas_Brochure.pdf`: 9 chunks (client, General)
+        - Client Total = **52 chunks** across 4 documents.
+        - Staff-only documents: `Client_Intake_SOP.pdf` (11), `Confidentiality_and_Data_Policy.pdf` (8), `Master_Services_Agreement_Northgate.pdf` (13), `Commercial_Lease_Agreement_Gulberg_Office.docx` (13) = 45 chunks.
+        - Staff Total = **97 chunks** across 8 documents (52 + 45 = 97).
+      - *Root cause of "48 vs 52"*: In Step 11, the total chunks across 6 documents was 71. The 2 staff docs totaled 19 chunks (11 + 8). 71 - 19 = 52. The narrative in Step 11 recorded "48" due to an arithmetic reporting mistake (71 - 23 or assuming FAQ had 15 chunks instead of 19). The real chunk count for the 4 client documents was always 52.
+      - *Retrieval Isolation Verification*: Extended `scripts/check_access.py` with 2 contract queries. Verified that across all 13 query categories in Client mode, **ZERO** staff-only chunks were returned (`[PASS] Strict visibility boundary verified`).
+    - **check_contracts Settings History & Re-run (A2)**:
+      - Documented all settings/code changes made during Step 12: added 5s cooldown / 6s inter-call sleep to protect free-tier 15 RPM; disabled preview model fallback (`fallback_model=""`) due to 20 RPD exhaustion; enabled `ThinkingLevel.MINIMAL` to prevent deep-thinking timeouts on 13k-char prompts; upgraded quote verification with case/whitespace normalization, multi-fragment splitting (`...`, `…`, `\n`), and cross-unit relocation.
+      - Confirmed `GEN_THINKING_LEVEL` is commented out/unset in `.env.example`.
+      - Re-ran `scripts/check_contracts.py` with default settings (`GEN_THINKING_LEVEL` unset). Reported honest outcome: `gemini-3.5-flash-lite` engaged default deep thinking on the large prompt, resulting in upstream `503 UNAVAILABLE` ("model is currently experiencing high demand") after 4 bounded retries, confirming that `ThinkingLevel.MINIMAL` is strongly advantageous for large contract prompts.
+    - **Logging Audit (A3)**:
+      - Inspected `logging.root.manager.loggerDict`: verified real logger names (`httpx`, `httpx2`, `httpcore`, `httpcore2`, `google`, `google.auth`, `google.genai`, `google_genai`, `chromadb`). Confirmed that `src/logging_setup.py` correctly suppresses all transport and GenAI loggers. Executing `scripts/ask.py` emits zero HTTP transport or AFC lines.
+  - **PART B - Draft Client Reply (`src/drafting.py`, Staff Only)**:
+    - Core function `draft_client_reply(question, answer, sources, tone, client_name, sender_name, include_sources, access_mode)`:
+      - Enforces server-side Staff-only access (`DraftAccessError` if `access_mode != "staff"`).
+      - Rejects non-factual or not-found turns (`DraftValidationError`).
+      - Full-text propagation: updated `src/rag.py` to include `"text"` alongside `"snippet"` in all source dictionaries.
+      - Structured generation via `DraftEmailJson` schema (`subject`, `body`) with single bounded-retry layer and fallback.
+      - Strict size & formatting constraints: max 170 words, body < 1500 chars, subject < 80 chars; strips markdown fences and control characters.
+      - **Faithfulness Check in Code**: `extract_numeric_tokens()` extracts and normalizes numbers, amounts (e.g. 5,000 -> 5000), percentages (2%), day counts (7), and times (9:30), while excluding 4-digit calendar years, dates (Month DD, YYYY), and names. Discrepancies are flagged in `unverified_figures`.
+      - **Quota Protection & In-Process Caching**: `DraftCache` keyed by `(sha256(answer + sources), tone, client_name, sender_name, include_sources, access_mode)` returns instant cached responses (0 API calls, 0.0 ms). `DraftSessionTracker` enforces `MAX_DRAFTS_PER_SESSION=15` and a 3.0s cooldown.
+      - Added `draft_to_text(draft) -> str` helper.
+  - **PART C - Research Memo Export (`src/memo.py`, Staff & Client)**:
+    - Pure python-docx generation (`build_memo_docx(messages, access_mode) -> bytes`) requiring **zero API calls** and zero vector store access.
+    - Structured document layout:
+      - Title: "Research Memo" with firm subtitle.
+      - 2-column metadata table: Date, Prepared by ("DocMind assistant (draft)"), View ("Staff view" / "Client view"), Questions answered.
+      - Section "Findings": for each answered turn (`found=True`, not small-talk), includes `Q{i}. <question>` heading, answer paragraph, and bulleted source list with citation label, relevance percentage match, and italicized snippet.
+      - Section "Open items": bulleted list of unresolved queries marked "Not found in the uploaded documents".
+      - Legal disclaimer callout and dynamic Word `PAGE` field code footer with fictional data notice.
+    - Document core properties (title, author, timestamp) and XML 1.0 character sanitization (`strip_invalid_xml_chars`).
+    - Truncates text fields to 4,000 chars and caps conversation history to the last 40 turns.
+    - Helper `memo_filename()` returning `docmind-memo-YYYYMMDD.docx`.
+  - **PART D - Streamlit UI Enhancements**:
+    - **Draft Client Reply**: Ghost button under each verified assistant response (Staff mode only). Opens `@st.dialog("Draft Client Reply", width="large")` with tone selector (Formal / Friendly), client name input, sender name input, source inclusion checkbox, primary "Generate draft" button with spinner, editable subject/body text areas, amber warning card for unverified figures, `.txt` download button, and latency caption.
+    - **Research Memo Export**: Download button in the chat header row (right-aligned). Enabled dynamically only when at least one answered turn exists; builds the DOCX in memory upon click.
+    - **Role Isolation**: Draft button is completely absent in Client mode. Client mode memo exports strictly contain client-visible session content.
+  - **PART E - Offline Testing**:
+    - Added `tests/test_drafting.py` (12 tests) and `tests/test_memo.py` (7 tests), plus UI AppTest smoke tests.
+    - Full test suite passed: **114/114 offline unit tests** (0 real API calls).
+  - **PART F - Live Verification**:
+    - Ran `scripts/check_drafting.py`:
+      - Staff consultation fee query: `Found: True` (PKR 5,000, 7 days waiver).
+      - Formal reply draft: complete, addressed to Ms. Fatima Khan, `Unverified Figures: []`, 2354 ms.
+      - Friendly reply draft: complete, warm greeting, `Unverified Figures: []`, 2336 ms.
+      - Parking space query: `Found: False` ("I couldn't find this in the uploaded documents").
+      - Hourly rates query: `Found: True` (Senior Partner PKR 25,000, Associate PKR 12,000, Paralegal PKR 4,000).
+      - Research memo generated: **38,619 bytes (37.7 KB)**, 15 paragraphs, 3 citation bullets, 1 open item, correct table metadata.
+    - Verified clean headless Streamlit startup on port 8503.
+- **Python Version**: Python 3.13.15
+- **Files Touched**:
+  - `src/config.py`
+  - `.env.example`
+  - `src/rag.py`
+  - `src/drafting.py`
+  - `src/memo.py`
+  - `src/ui/chat_page.py`
+  - `scripts/check_access.py`
+  - `scripts/check_drafting.py`
+  - `tests/test_drafting.py`
+  - `tests/test_memo.py`
+  - `tests/test_ui_smoke.py`
+  - `README.md`
+  - `docs/PROGRESS.md`
+- **Known Limitations**:
+  - The automated numeric faithfulness check verifies quantities, rates, percentages, days, and times, but cannot detect semantic word-level hallucinations (e.g. replacing "partner" with "director"). Full staff review remains mandatory before sending drafts.
+
+
 
 
 

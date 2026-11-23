@@ -40,6 +40,10 @@ MAX_ANALYSIS_CHARS: int = int(os.getenv("MAX_ANALYSIS_CHARS", "60000"))
 MAX_ANALYSES_PER_SESSION: int = int(os.getenv("MAX_ANALYSES_PER_SESSION", "10"))
 MIN_SECONDS_BETWEEN_ANALYSES: float = float(os.getenv("MIN_SECONDS_BETWEEN_ANALYSES", "5.0"))
 
+# Client Reply Drafting Configuration
+MAX_DRAFTS_PER_SESSION: int = int(os.getenv("MAX_DRAFTS_PER_SESSION", "15"))
+MIN_SECONDS_BETWEEN_DRAFTS: float = float(os.getenv("MIN_SECONDS_BETWEEN_DRAFTS", "3.0"))
+
 # Document Access Modes & Practice Areas
 ACCESS_MODES = ("staff", "client")
 PRACTICE_AREAS = (

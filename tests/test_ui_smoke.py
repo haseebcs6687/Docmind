@@ -269,3 +269,74 @@ def test_batch_upload_defaults_to_staff_visibility():
     assert "staff" in ACCESS_MODES
     assert "client" in ACCESS_MODES
 
+
+# ---------------- Step 13: Draft Client Reply & Memo Export UI Tests ----------------
+
+def test_draft_button_and_memo_export_in_ui():
+    """Verify draft button visibility in staff mode, absence in client mode, and memo button behavior."""
+    mock_store = mock.MagicMock(spec=VectorStore)
+    mock_store.count.return_value = 10
+    mock_store.list_sources.return_value = [
+        {"name": "Fee_Schedule_2026.pdf", "chunk_count": 10, "file_type": "pdf", "visibility": "client", "practice_area": "Billing & Fees"}
+    ]
+
+    mock_resp = RagResponse(
+        answer="The consultation fee is PKR 5,000.",
+        sources=[{
+            "source": "Fee_Schedule_2026.pdf",
+            "citation": "Fee_Schedule_2026.pdf, p. 1",
+            "page": 1,
+            "section": None,
+            "score": 0.88,
+            "snippet": "Initial consultation fee is PKR 5,000.",
+            "text": "Initial consultation fee is PKR 5,000.",
+            "visibility": "client",
+            "practice_area": "Billing & Fees",
+        }],
+        found=True,
+        latency_ms=250.0,
+    )
+
+    with mock.patch("src.ui.state.get_store", return_value=mock_store), \
+         mock.patch("src.ui.chat_page.get_store", return_value=mock_store), \
+         mock.patch("src.ui.documents_page.get_store", return_value=mock_store), \
+         mock.patch("app.get_store", return_value=mock_store), \
+         mock.patch.object(ChatSession, "ask", return_value=mock_resp):
+
+        # 1. Staff Mode: initial state (no turns)
+        at = AppTest.from_file(APP_PATH, default_timeout=15)
+        at.run()
+        assert len(at.exception) == 0
+
+        # Memo button should be disabled initially
+        disabled_memo = [b for b in at.button if "export memo" in b.label.lower() and getattr(b, "disabled", False)]
+        assert len(disabled_memo) >= 1
+
+        # Submit question in Staff mode
+        at.chat_input[0].set_value("What is the consultation fee?").run()
+        assert len(at.exception) == 0
+
+        # Draft button must now be visible in Staff mode
+        draft_buttons = [b for b in at.button if "draft client reply" in b.label.lower()]
+        assert len(draft_buttons) == 1
+
+        # Memo export download button must now be present
+        memo_download = [b for b in at.download_button if "export memo" in b.label.lower()]
+        assert len(memo_download) == 1
+
+        # 2. Client Mode: switch to Client mode via sidebar segmented control
+        at.sidebar.segmented_control(key="role_switcher").set_value("Client").run()
+        assert len(at.exception) == 0
+
+        # Submit question in Client mode
+        at.chat_input[0].set_value("What is the consultation fee?").run()
+        assert len(at.exception) == 0
+
+        # Draft button MUST NOT be present in Client mode
+        client_draft_buttons = [b for b in at.button if "draft client reply" in b.label.lower()]
+        assert len(client_draft_buttons) == 0
+
+        # Memo export download button is still available in Client mode
+        client_memo_download = [b for b in at.download_button if "export memo" in b.label.lower()]
+        assert len(client_memo_download) == 1
+
