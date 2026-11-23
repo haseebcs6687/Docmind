@@ -11,14 +11,20 @@ DocMind is a Retrieval-Augmented Generation (RAG) "Chat With Your Documents" kno
 - **Anti-Hallucination Guardrails**: If the answer is not present in the ingested documents, the application must clearly state so without fabricating facts.
 - **Multilingual Support**: Supports Urdu, Roman Urdu, and English. The agent must respond in the user's language.
 - **Follow-up Handling**: Maintains conversational context to answer sequential follow-up questions accurately.
-- **User Interface**: Clean dark Streamlit UI.
+- **User Interface**: Clean modern Streamlit UI (dark sidebar + light grey workspace).
 
 ## Tech Stack
 - **Language**: Python
 - **Frontend / App Framework**: Streamlit
-- **LLM / Embeddings**: Gemini API (free tier)
+- **LLM / Embeddings**: Gemini API (free tier) via official `google-genai` SDK
 - **Vector Database**: ChromaDB
 - **Deployment**: Hugging Face Spaces via Docker SDK
+
+## UI Design & Direction
+- **Sidebar**: Dark near-black sidebar with navigation items and active pill highlight. Planned pages: Chat, Documents, Sources, Evaluation, Settings.
+- **Main Workspace**: Light grey main area with white rounded cards with soft borders.
+- **Visual Elements**: Soft pastel tinted stat cards, indigo/violet primary accent (approx #4F46E5), top bar with search, clean modern sans font, small status chips.
+- **Branding**: Quxel violet-blue branding comes in a later step.
 
 ## Repository Structure
 ```
@@ -34,20 +40,23 @@ Docmind/
 ├── data/
 │   └── sample_docs/        # Sample dummy legal documents (.gitkeep)
 ├── eval/                   # Evaluation scripts and test queries (.gitkeep)
+├── scripts/                # Helper and diagnostic scripts (e.g., check_gemini.py)
 ├── tests/                  # Unit and integration tests (.gitkeep)
 ├── docs/
-│   └── PROGRESS.md         # Progress tracking log for every development step
+│   ├── PROGRESS.md         # Progress tracking log for every development step
+│   └── ui-reference/       # UI screenshots (gitignored)
+├── .env                    # Local environment variables (gitignored)
 ├── .env.example            # Environment variables template
-├── .gitignore              # Ignored files (secrets, venv, vector stores, caches)
+├── .gitignore              # Ignored files (secrets, venv, vector stores, caches, ui-ref)
 ├── PROJECT_CONTEXT.md      # Project overview, guidelines, and rules
 ├── README.md               # Repository summary
-└── requirements.txt        # Project dependencies (pinned in later steps)
+└── requirements.txt        # Pinned project dependencies
 ```
 
 ## Coding Rules
 - **Small focused edits only**: No big refactors or full-file rewrites.
 - **Type hints & docstrings**: Every function and module must have type hints and concise docstrings.
-- **Never hardcode secrets**: Read configuration from `.env` via `src/config.py`.
+- **Never hardcode secrets**: Read configuration from `.env` via `src/config.py`. Never log or print keys.
 - **Error and rate-limit handling**: Handle API errors, timeouts, and rate limits gracefully.
-- **UI Styling**: Neutral clean dark theme for now; Quxel violet-blue branding comes in a later step.
+- **UI Styling**: Follow the UI design direction (dark sidebar, light workspace, indigo/violet accent #4F46E5); Quxel branding comes in a later step.
 - **Progress Tracking Rule**: At the end of every step, update `docs/PROGRESS.md` (what was built, files touched, how it was tested, decisions made) and then git commit + push.

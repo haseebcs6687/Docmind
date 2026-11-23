@@ -28,3 +28,32 @@
   - Left dependencies unpinned in `requirements.txt` until specific components are integrated in subsequent steps.
   - Set default git branch to `main`.
   - Configured project rules and progress logging standards in `PROJECT_CONTEXT.md`.
+
+## Step 2: Gemini SDK Setup, Config Loader & Model Check Script
+- **What was built**:
+  - Verified and installed the currently recommended official Google GenAI Python SDK (`google-genai`) alongside `python-dotenv`.
+  - Pinned exact installed versions into `requirements.txt` (`google-genai==3.6.1`, `python-dotenv==1.2.4`).
+  - Implemented `src/config.py` with dynamic `.env` loading, validation of `GEMINI_API_KEY` without secret leakage, and optional reads for `GEMINI_MODEL` and `GEMINI_EMBED_MODEL`.
+  - Added `GEMINI_MODEL=` and `GEMINI_EMBED_MODEL=` to `.env.example` and created local untracked `.env`.
+  - Created `scripts/check_gemini.py` supporting Mode A (listing generation and embedding models in formatted tables) and Mode B (testing generation with "Say hello in Urdu" and checking vector dimension length).
+  - Added `docs/ui-reference/` to `.gitignore` and updated `PROJECT_CONTEXT.md` with UI visual styling and planned pages.
+- **SDK Chosen and Why**:
+  - SDK: `google-genai` (v3.6.1)
+  - Why: This is the official, current unified SDK recommended by Google in the Gemini API documentation (`ai.google.dev quickstart`), replacing the legacy `google-generativeai` package.
+- **Python Version**: Python 3.13.15
+- **Files Touched**:
+  - `.gitignore`
+  - `PROJECT_CONTEXT.md`
+  - `requirements.txt`
+  - `src/config.py`
+  - `.env.example`
+  - `.env` (gitignored, untracked)
+  - `scripts/check_gemini.py`
+  - `docs/PROGRESS.md`
+- **How it was tested**:
+  - Verified compilation of all created Python modules using `python -m py_compile scripts/check_gemini.py src/config.py`.
+  - Confirmed `.env` and `docs/ui-reference/` are properly ignored by Git (`git status`, `git check-ignore`).
+  - Verified `git ls-files` tracks only `.env.example` and not `.env`.
+- **Decisions Made**:
+  - Used module-level `__getattr__` and `get_gemini_api_key()` in `src/config.py` for safe key retrieval with clear error messaging when unconfigured.
+  - Formatted tables in `scripts/check_gemini.py` with standard library formatting without introducing unpinned external dependencies.
