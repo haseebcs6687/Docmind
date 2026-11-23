@@ -24,8 +24,8 @@ class Chunk:
 
 
 def _split_into_sentences(text: str) -> List[str]:
-    """Split text into sentences, supporting English punctuation (.!?) and Urdu punctuation (۔ ؟)."""
-    sentence_endings = re.compile(r"([.!?۔؟]+(?:\s+|\Z))")
+    """Split text into sentences, supporting standard punctuation (.!?)."""
+    sentence_endings = re.compile(r"([.!?]+(?:\s+|\Z))")
     parts = sentence_endings.split(text)
 
     sentences: List[str] = []
@@ -129,7 +129,7 @@ def chunk_units(
 
     Rules:
         - Units shorter than chunk_size stay as a single chunk (e.g. FAQ Q&As).
-        - Units longer than chunk_size split on paragraph/sentence boundaries (including Urdu "۔" and "؟").
+        - Units longer than chunk_size split on paragraph/sentence boundaries.
         - Chunks never cross page boundaries (page number is preserved per chunk).
         - Drop empty chunks.
         - Never split mid-word.

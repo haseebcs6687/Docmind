@@ -1,14 +1,18 @@
 """CLI query interface for DocMind RAG pipeline."""
 
-import sys
+import logging
 import os
+import sys
 
-# Ensure proper stdout encoding for Urdu and other UTF-8 text on Windows
+# Ensure proper stdout encoding on Windows
 if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
     try:
         sys.stdout.reconfigure(encoding="utf-8")
     except Exception:
         pass
+
+# Configure root logger to output info/warning messages to stderr
+logging.basicConfig(level=logging.INFO, format="%(message)s")
 
 # Ensure project root is in sys.path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -22,7 +26,6 @@ def print_response(question: str, resp) -> None:
     """Print a formatted block for a single RAG response."""
     print("=" * 80)
     print(f"Question: {question}")
-    print(f"Detected language: {resp.language}")
     print(f"Retrieved: top score = {resp.top_score:.2f} (threshold = {SCORE_THRESHOLD:.2f})")
     print(f"Found: {'Yes' if resp.found else 'No'}")
     print(f"\nAnswer:\n{resp.answer}\n")

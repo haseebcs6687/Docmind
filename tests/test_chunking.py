@@ -78,21 +78,21 @@ def test_chunk_ids_are_deterministic():
     assert run1[0].id == run2[0].id
 
 
-def test_urdu_sentence_splitting():
-    """Verify that Urdu sentence punctuation (۔ and ؟) is recognized during splitting."""
-    urdu_text = (
-        "کیا ابتدائی مشاورت کی کوئی فیس ہے؟ جی ہاں، فیس 5,000 روپے ہے۔ "
-        "اگر موکل باقاعدہ معاہدہ کر لیتا ہے تو یہ فیس معاف کر دی جاتی ہے۔ " * 15
+def test_sentence_splitting():
+    """Verify that sentence punctuation (.!?) is recognized during splitting."""
+    long_text = (
+        "What is the preliminary consultation fee? The fee is PKR 5,000 for 45 minutes! "
+        "If the client signs an engagement agreement, this fee is fully waived. " * 15
     )
     unit = DocUnit(
-        text=urdu_text,
+        text=long_text,
         source="Client_FAQ.txt",
         page=None,
-        section="Q&A 19",
+        section="Q&A 1",
         file_type="txt",
     )
 
     chunks = chunk_units([unit], chunk_size=300, chunk_overlap=50)
     assert len(chunks) > 1
     for c in chunks:
-        assert "روپے" in c.text
+        assert "5,000" in c.text

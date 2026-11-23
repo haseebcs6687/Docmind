@@ -50,7 +50,7 @@ class DocUnit:
 
 
 def _normalize_whitespace(text: str) -> str:
-    """Normalize excessive whitespace while preserving line structure and non-ASCII scripts."""
+    """Normalize excessive whitespace while preserving line structure."""
     # Collapse multiple inline spaces and tabs
     text = re.sub(r"[ \t]+", " ", text)
     # Collapse three or more newlines into double newlines
@@ -218,8 +218,8 @@ def _load_txt(stream: BinaryIO, filename: str) -> List[DocUnit]:
     if not content.strip():
         raise DocumentLoadError(f"Text file '{filename}' contains no readable text.")
 
-    # Detect Q&A patterns (English e.g. Q1:, Q:, Question 1: or Urdu e.g. سوال 1:)
-    qa_pattern = re.compile(r"^(?:Q\d*[:.]|Question\s*\d*[:.]|سوال\s*\d*[:.])", re.MULTILINE)
+    # Detect Q&A patterns (e.g. Q1:, Q:, Question 1:)
+    qa_pattern = re.compile(r"^(?:Q\d*[:.]|Question\s*\d*[:.])", re.MULTILINE)
     matches = list(qa_pattern.finditer(content))
 
     units: List[DocUnit] = []

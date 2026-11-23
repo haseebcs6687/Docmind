@@ -1,4 +1,4 @@
-"""Unit tests for the DocMind RAG pipeline, guardrails, and language detection."""
+"""Unit tests for the DocMind RAG pipeline and guardrails."""
 
 import json
 from unittest.mock import MagicMock
@@ -9,11 +9,7 @@ from src.rag import (
     RagResponse,
     _call_gemini_with_retry,
     answer,
-    detect_language,
-    get_not_found_message,
-    NOT_FOUND_EN,
-    NOT_FOUND_ROMAN,
-    NOT_FOUND_URDU,
+    NOT_FOUND,
 )
 
 
@@ -59,28 +55,12 @@ def test_below_threshold_gates_llm():
         llm_called = True
         return json.dumps({"found": True, "answer": "Should not be called", "used_sources": [1]})
 
-    # English query
-    resp_en = answer("What is the parking fee?", store=store, llm=mock_llm)
+    resp = answer("What is the parking fee?", store=store, llm=mock_llm)
     assert not llm_called
-    assert resp_en.found is False
-    assert resp_en.answer == NOT_FOUND_EN
-    assert resp_en.sources == []
-    assert resp_en.top_score == 0.52
-    assert resp_en.language == "english"
-
-    # Roman Urdu query
-    resp_roman = answer("parking kahan par hai?", store=store, llm=mock_llm)
-    assert not llm_called
-    assert resp_roman.found is False
-    assert resp_roman.answer == NOT_FOUND_ROMAN
-    assert resp_roman.language == "roman_urdu"
-
-    # Urdu script query
-    resp_urdu = answer("پارکنگ کہاں ہے؟", store=store, llm=mock_llm)
-    assert not llm_called
-    assert resp_urdu.found is False
-    assert resp_urdu.answer == NOT_FOUND_URDU
-    assert resp_urdu.language == "urdu"
+    assert resp.found is False
+    assert resp.answer == NOT_FOUND
+    assert resp.sources == []
+    assert resp.top_score == 0.52
 
 
 # 2. Found with citations: LLM returns found=true and used_sources=[1, 3]
@@ -122,7 +102,7 @@ def test_hallucination_guard_no_sources():
 
     resp1 = answer("Can I pay via JazzCash?", store=store, llm=mock_llm_empty)
     assert resp1.found is False
-    assert resp1.answer == NOT_FOUND_EN
+    assert resp1.answer == NOT_FOUND
     assert resp1.sources == []
 
     # Out of bounds indices
@@ -135,7 +115,7 @@ def test_hallucination_guard_no_sources():
 
     resp2 = answer("Can I pay via JazzCash?", store=store, llm=mock_llm_out_of_bounds)
     assert resp2.found is False
-    assert resp2.answer == NOT_FOUND_EN
+    assert resp2.answer == NOT_FOUND
     assert resp2.sources == []
 
 
@@ -153,7 +133,7 @@ def test_model_declares_found_false():
 
     resp = answer("Do you provide swimming pool access?", store=store, llm=mock_llm)
     assert resp.found is False
-    assert resp.answer == NOT_FOUND_EN
+    assert resp.answer == NOT_FOUND
     assert resp.sources == []
 
 
@@ -226,27 +206,7 @@ def test_generation_429_retry_then_success(monkeypatch):
     assert "Success after 429" in output
 
 
-# 7. Language detection helper
-def test_language_detection():
-    # Urdu script
-    assert detect_language("مشاورت کی فیس کتنی ہے؟") == "urdu"
-    assert detect_language("دفتر کے اوقات کیا ہیں؟") == "urdu"
-
-    # Roman Urdu
-    assert detect_language("consultation ki fees kitni hai?") == "roman_urdu"
-    assert detect_language("Saturday ko office kab tak khula hota hai?") == "roman_urdu"
-
-    # English (even with words like 'fees' or single roman token)
-    assert detect_language("What is the initial consultation fee and when is it waived?") == "english"
-    assert detect_language("What are the hourly rates for each lawyer level?") == "english"
-    assert detect_language("Are fees payable in advance?") == "english"
-    assert detect_language("Is there a fee for legal consultation?") == "english"
-
-    # Single roman token should NOT trigger roman urdu
-    assert detect_language("Hello sir, what is the policy for client data?") == "english"
-
-
-# 8. Empty vector store -> returns not-found without calling LLM
+# 7. Empty vector store -> returns not-found without calling LLM
 def test_empty_vector_store():
     store = MockStore(results=[], doc_count=0)
     llm_called = False
@@ -259,6 +219,6 @@ def test_empty_vector_store():
     resp = answer("Any question?", store=store, llm=mock_llm)
     assert not llm_called
     assert resp.found is False
-    assert resp.answer == NOT_FOUND_EN
+    assert resp.answer == NOT_FOUND
     assert resp.sources == []
     assert resp.top_score == 0.0

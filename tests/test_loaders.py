@@ -75,19 +75,18 @@ def test_docx_multiple_sections():
         assert u.citation_label().startswith("Client_Engagement_Letter_Template.docx, ")
 
 
-def test_faq_urdu_intact():
-    """Verify Urdu script in Client_FAQ.txt survives loading intact and uncorrupted."""
+def test_faq_units_load():
+    """Verify Client_FAQ.txt loads expected Q&A units with accurate citation labels."""
     faq_file = SAMPLE_DIR / "Client_FAQ.txt"
     units = load_file(faq_file)
 
-    # Check known Urdu substring from dataset
-    urdu_substring = "ابتدائی قانونی مشاورت کی فیس 5,000 روپے"
-    found = any(urdu_substring in u.text for u in units)
-    assert found, "Known Urdu substring was not found or was corrupted during text loading"
+    # Verify key fact in Q&A 2
+    found = any("preliminary consultation fee is PKR 5,000" in u.text for u in units)
+    assert found, "Expected consultation fee text was not found in FAQ units"
 
     # Verify Q&A citation labels
     qa_units = [u for u in units if u.section and u.section.startswith("Q&A")]
-    assert len(qa_units) >= 20
+    assert len(qa_units) == 18
     assert any(u.citation_label() == "Client_FAQ.txt, Q&A 7" for u in units)
 
 

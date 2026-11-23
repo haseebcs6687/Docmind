@@ -1,4 +1,4 @@
-"""CLI script to test semantic retrieval across 6 benchmark queries."""
+"""CLI script to test semantic retrieval across benchmark queries."""
 
 import sys
 from pathlib import Path
@@ -11,10 +11,8 @@ from src.vectorstore import VectorStore
 
 QUERIES = [
     "What is the initial consultation fee?",
-    "consultation ki fees kitni hai?",
-    "مشاورت کی فیس کتنی ہے؟",
     "What are the office hours on Saturday?",
-    "how long are client files kept?",
+    "How long are client files kept?",
     "Do you have parking space?",
 ]
 

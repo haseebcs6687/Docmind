@@ -6,7 +6,7 @@ Generates realistic legal documents for 'Sterling & Rauf Law Associates' in data
 - Client_Intake_SOP.pdf (4 pages)
 - Confidentiality_and_Data_Policy.pdf (3 pages)
 - Client_Engagement_Letter_Template.docx (multi-page template)
-- Client_FAQ.txt (UTF-8 English + Urdu FAQ)
+- Client_FAQ.txt (UTF-8 English FAQ)
 """
 
 import os
@@ -1055,16 +1055,13 @@ def build_engagement_letter_docx(output_path: Path) -> None:
 
 
 def build_client_faq_txt(output_path: Path) -> None:
-    """Generate Client_FAQ.txt (UTF-8, 15-20 English Q&As + 4-5 Urdu Q&As)."""
+    """Generate Client_FAQ.txt (UTF-8, 18 English Q&As)."""
     faq_content = """================================================================================
 STERLING & RAUF LAW ASSOCIATES - CLIENT FREQUENTLY ASKED QUESTIONS (FAQ)
 Office: Suite 402-404, Gulberg Executive Heights, Main Boulevard, Gulberg III, Lahore, Pakistan
 Official Contact: Phone: +92 42 3578 9000 | Email: contact@sterlingrauf.com
 Note: Fictional demo document - not real legal advice
 ================================================================================
-
-PART I: GENERAL PRACTICE & CONSULTATION FAQs (ENGLISH)
---------------------------------------------------------------------------------
 
 Q1: What are the official office hours for Sterling & Rauf Law Associates?
 A1: Our Lahore office is open Monday to Friday from 9:30 AM to 5:30 PM (9:30-17:30) and Saturday from 10:00 AM to 2:00 PM (10:00-14:00). The firm is closed on Sundays and gazetted public holidays.
@@ -1120,27 +1117,6 @@ A17: Corporate clients must furnish an SECP Certificate of Incorporation, Memora
 Q18: What is the notice period for terminating an engagement?
 A18: Either party may terminate representation at any time by providing 14 calendar days written notice.
 
-
-================================================================================
-PART II: FREQUENTLY ASKED QUESTIONS IN URDU SCRIPT (اردو سوال و جواب)
---------------------------------------------------------------------------------
-
-سوال 1: کیا ابتدائی قانونی مشاورت کی کوئی فیس ہے؟
-جواب 1: جی ہاں، 45 منٹ کی ابتدائی قانونی مشاورت کی فیس 5,000 روپے (PKR 5,000) ہے۔ اگر موکل مشاورت کے بعد 7 دن کے اندر باقاعدہ وکالت کا معاہدہ کر لیتا ہے تو یہ 5,000 روپے کی فیس مکمل طور پر معاف کر دی جاتی ہے اور کھاتے میں شامل کر دی جاتی ہے۔
-
-سوال 2: اسٹرلنگ اینڈ رؤف لاء ایسوسی ایٹس کے دفتری اوقات کیا ہیں؟
-جواب 2: ہمارا لاہور کا مرکزی دفتر پیر سے جمعہ صبح 9:30 سے شام 17:30 (5:30 بجے) تک اور ہفتہ کے روز صبح 10:00 سے دوپہر 14:00 (2:00 بجے) تک کھلا رہتا ہے۔ اتوار اور تمام سرکاری تعطیلات پر دفتر بند رہتا ہے۔ موکلین کی ای میلز کا جواب ایک کاروباری دن (1 business day) کے اندر دیا جاتا ہے۔
-
-سوال 3: وکلاء کی گھنٹہ وار فیس کی شرح اور ریٹینر کیا ہے؟
-جواب 3: گھنٹہ وار فیس کی شرح درج ذیل ہے: سینئر پارٹنر 25,000 روپے فی گھنٹہ، ایسوسی ایٹ ایڈووکیٹ 12,000 روپے فی گھنٹہ، اور پیرا لیگل 4,000 روپے فی گھنٹہ۔ ریٹینر ڈپازٹ کے تحت فیملی لاء کے لیے 75,000 روپے، پراپرٹی کے معاملات کے لیے 100,000 روپے، اور کارپوریٹ ایڈوائزری کے لیے ماہانہ 150,000 روپے ایڈوانس ریٹینر مقرر ہے۔
-
-سوال 4: انوائس کی ادائیگی کی آخری تاریخ اور تاخیر کا جرمانہ کیا ہے؟
-جواب 4: تمام قانونی انوائسز کے اجرا کے بعد 15 دن کے اندر ادائیگی لازمی ہوتی ہے۔ اگر بل 15 دن میں ادا نہ کیا جائے تو بقایا رقم پر ماہانہ 2 فیصد (2% per month) لیٹ فیس لاگو ہوتی ہے۔ کیس کے خاتمے پر غیر استعمال شدہ ریٹینر 10 فیصد ایڈمن چارجز منہا کر کے 30 دن کے اندر واپس کر دیا جاتا ہے۔
-
-سوال 5: فرم کن معاملات میں وکالت کرتی ہے اور کن میں نہیں؟
-جواب 5: ہماری فرم فیملی لاء، پراپرٹی و رئیل اسٹیٹ، کارپوریٹ لاء، سول قانونی تنازعات، معاہدہ نویسی، اور انٹلیکچوئل پراپرٹی میں خدمات فراہم کرتی ہے۔ یہ یاد رکھنا ضروری ہے کہ ہماری فرم فوجداری مقدمات (criminal defense) اور امیگریشن (immigration) کے معاملات بالکل ڈیل نہیں کرتی۔ کسی بھی نئے کیس کے لیے مفادات کے ٹکراؤ (conflict check) کی جانچ میں 2 کام کے دن درکار ہوتے ہیں۔
-
-
 ================================================================================
 Fictional demo document - not real legal advice
 Sterling & Rauf Law Associates, Lahore, Pakistan
@@ -1181,7 +1157,7 @@ def main() -> None:
         elif f.suffix == ".docx":
             details = "DOCX Template (2+ pages text)"
         elif f.suffix == ".txt":
-            details = "UTF-8 Text (18 EN + 5 UR Q&As)"
+            details = "UTF-8 Text (18 English Q&As)"
         else:
             details = "N/A"
         print(f"{f.name:<40} | {size_kb:<12.1f} | {details}")

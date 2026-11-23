@@ -100,7 +100,7 @@ def mode_b_test_models(client, gen_model: str, embed_model: str) -> None:
     try:
         response = client.models.generate_content(
             model=gen_model,
-            contents="Say hello in Urdu",
+            contents="Say hello",
         )
         reply = getattr(response, "text", "")
         print("\n--- Text Generation Response ---")
@@ -115,7 +115,7 @@ def mode_b_test_models(client, gen_model: str, embed_model: str) -> None:
     try:
         embed_response = client.models.embed_content(
             model=embed_model,
-            contents="Say hello in Urdu",
+            contents="Say hello",
         )
         vector_len = 0
         if hasattr(embed_response, "embeddings") and embed_response.embeddings:

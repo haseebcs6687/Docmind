@@ -9,7 +9,7 @@ DocMind is a Retrieval-Augmented Generation (RAG) "Chat With Your Documents" kno
 ## Core Features
 - **Source Citation**: Answers must cite sources explicitly (file name + page number).
 - **Anti-Hallucination Guardrails**: If the answer is not present in the ingested documents, the application must clearly state so without fabricating facts.
-- **Multilingual Support**: Supports Urdu, Roman Urdu, and English. The agent must respond in the user's language.
+- **English-Only Focus**: Processes English legal documents and delivers clear English responses with source citations.
 - **Follow-up Handling**: Maintains conversational context to answer sequential follow-up questions accurately.
 - **User Interface**: Clean modern Streamlit UI (dark sidebar + light grey workspace).
 
