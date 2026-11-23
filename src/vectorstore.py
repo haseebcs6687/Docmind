@@ -1,11 +1,12 @@
 """Vector database management, Gemini embedding integration, and semantic retrieval."""
 
 import hashlib
+import json
 import logging
 import random
 import time
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
 
 import chromadb
 from chromadb.api.models.Collection import Collection
@@ -13,6 +14,7 @@ from chromadb.api.models.Collection import Collection
 from src.chunking import Chunk, chunk_units
 from src.config import (
     CHROMA_DIR,
+    DEFAULT_UPLOAD_VISIBILITY,
     EMBED_BATCH_SIZE,
     EMBED_BATCH_SLEEP_SECONDS,
     GEMINI_EMBED_MODEL,
@@ -179,8 +181,12 @@ class VectorStore:
         after_count = self.count()
         return before_count - after_count
 
-    def list_sources(self) -> List[Dict[str, Any]]:
-        """List distinct sources indexed in the collection with chunk counts and file types."""
+    def list_sources(
+        self,
+        allowed_visibility: Optional[Union[Set[str], List[str]]] = None,
+        practice_areas: Optional[List[str]] = None,
+    ) -> List[Dict[str, Any]]:
+        """List distinct sources indexed in the collection with chunk counts, file types, and access metadata."""
         if self.count() == 0:
             return []
 
@@ -190,11 +196,30 @@ class VectorStore:
         for meta in data["metadatas"]:
             src = meta.get("source", "unknown")
             ftype = meta.get("file_type", "")
+            vis = meta.get("visibility", DEFAULT_UPLOAD_VISIBILITY)
+            pa = meta.get("practice_area", "General")
             if src not in sources_map:
-                sources_map[src] = {"name": src, "chunk_count": 0, "file_type": ftype}
+                sources_map[src] = {
+                    "name": src,
+                    "chunk_count": 0,
+                    "file_type": ftype,
+                    "visibility": vis,
+                    "practice_area": pa,
+                }
             sources_map[src]["chunk_count"] += 1
 
-        return sorted(sources_map.values(), key=lambda s: s["name"].lower())
+        allowed_vis_set = set(allowed_visibility) if allowed_visibility is not None else None
+        pa_set = set(practice_areas) if practice_areas is not None and len(practice_areas) > 0 else None
+
+        filtered = []
+        for s in sources_map.values():
+            if allowed_vis_set is not None and s["visibility"] not in allowed_vis_set:
+                continue
+            if pa_set is not None and s["practice_area"] not in pa_set:
+                continue
+            filtered.append(s)
+
+        return sorted(filtered, key=lambda s: s["name"].lower())
 
     def get_fingerprint(self) -> str:
         """Generate a SHA-256 fingerprint of the current vector store state to invalidate caches."""
@@ -206,16 +231,79 @@ class VectorStore:
         for meta in data.get("metadatas", []):
             src = meta.get("source", "")
             fhash = meta.get("file_hash", "")
-            hash_entries.append(f"{src}:{fhash}")
+            vis = meta.get("visibility", DEFAULT_UPLOAD_VISIBILITY)
+            pa = meta.get("practice_area", "General")
+            hash_entries.append(f"{src}:{fhash}:{vis}:{pa}")
         hash_entries.sort()
         summary = f"{cnt}|" + ";".join(hash_entries)
         return hashlib.sha256(summary.encode("utf-8")).hexdigest()[:16]
+
+    def set_source_metadata(self, name: str, visibility: str, practice_area: str) -> int:
+        """Update visibility and practice area metadata for all chunks of a source without re-embedding.
+
+        Returns:
+            Number of chunks updated (0 embedding calls).
+        """
+        res = self.collection.get(where={"source": name}, include=["metadatas"])
+        if not res or not res.get("ids"):
+            return 0
+
+        ids = res["ids"]
+        old_metas = res["metadatas"]
+        new_metas = []
+        for m in old_metas:
+            updated = dict(m)
+            updated["visibility"] = visibility
+            updated["practice_area"] = practice_area
+            new_metas.append(updated)
+
+        self.collection.update(ids=ids, metadatas=new_metas)
+        return len(ids)
+
+    def migrate_metadata_from_manifest(
+        self,
+        manifest: Optional[Dict[str, Dict[str, str]]] = None,
+    ) -> Dict[str, int]:
+        """Ensure all indexed sources have visibility and practice area applied from manifest without re-embedding.
+
+        Returns:
+            Dict mapping source name to count of updated chunks (0 embedding calls).
+        """
+        if manifest is None:
+            manifest_path = Path(__file__).resolve().parent.parent / "data" / "sample_docs" / "manifest.json"
+            if manifest_path.exists():
+                try:
+                    with open(manifest_path, "r", encoding="utf-8") as f:
+                        manifest = json.load(f)
+                except Exception as e:
+                    logger.warning("Failed loading manifest from %s: %s", manifest_path, e)
+                    manifest = {}
+            else:
+                manifest = {}
+
+        report: Dict[str, int] = {}
+        sources = self.list_sources()
+        for s in sources:
+            src_name = s["name"]
+            cfg = manifest.get(src_name, {"visibility": DEFAULT_UPLOAD_VISIBILITY, "practice_area": "General"})
+            target_vis = cfg.get("visibility", DEFAULT_UPLOAD_VISIBILITY)
+            target_pa = cfg.get("practice_area", "General")
+
+            current_vis = s.get("visibility")
+            current_pa = s.get("practice_area")
+
+            if current_vis != target_vis or current_pa != target_pa:
+                cnt = self.set_source_metadata(src_name, target_vis, target_pa)
+                report[src_name] = cnt
+
+        return report
 
     def index_units(
         self,
         units: List[DocUnit],
         file_hash_by_source: Dict[str, str],
         embed_fn: Optional[Callable[[List[str], str], List[List[float]]]] = None,
+        metadata_by_source: Optional[Dict[str, Dict[str, str]]] = None,
     ) -> Dict[str, Any]:
         """Index DocUnits into the vector store incrementally based on file hash."""
         report: Dict[str, Any] = {
@@ -269,6 +357,9 @@ class VectorStore:
         for c in all_new_chunks:
             ids.append(c.id)
             documents.append(c.text)
+            source_meta = (metadata_by_source or {}).get(c.source, {})
+            vis = source_meta.get("visibility", DEFAULT_UPLOAD_VISIBILITY)
+            pa = source_meta.get("practice_area", "General")
             metadatas.append({
                 "source": c.source,
                 "page": c.page if c.page is not None else 0,
@@ -277,6 +368,8 @@ class VectorStore:
                 "citation": c.citation,
                 "chunk_index": c.chunk_index,
                 "file_hash": file_hash_by_source.get(c.source, ""),
+                "visibility": vis,
+                "practice_area": pa,
             })
 
         chroma_batch_size = 100
@@ -298,6 +391,8 @@ class VectorStore:
         question: str,
         k: int = 5,
         embed_fn: Optional[Callable[[List[str], str], List[List[float]]]] = None,
+        allowed_visibility: Optional[Union[Set[str], List[str]]] = None,
+        practice_areas: Optional[List[str]] = None,
     ) -> List[Dict[str, Any]]:
         """Query the vector store with semantic search and return results with similarity scores.
 
@@ -320,9 +415,32 @@ class VectorStore:
         query_vector = q_embeds[0]
         n_results = min(k, self.count())
 
+        # Construct ChromaDB where filter
+        where_clauses: List[Dict[str, Any]] = []
+        if allowed_visibility is not None:
+            vis_list = list(allowed_visibility)
+            if len(vis_list) == 1:
+                where_clauses.append({"visibility": vis_list[0]})
+            elif len(vis_list) > 1:
+                where_clauses.append({"visibility": {"$in": vis_list}})
+
+        if practice_areas is not None and len(practice_areas) > 0:
+            pa_list = list(practice_areas)
+            if len(pa_list) == 1:
+                where_clauses.append({"practice_area": pa_list[0]})
+            elif len(pa_list) > 1:
+                where_clauses.append({"practice_area": {"$in": pa_list}})
+
+        where_filter: Optional[Dict[str, Any]] = None
+        if len(where_clauses) == 1:
+            where_filter = where_clauses[0]
+        elif len(where_clauses) > 1:
+            where_filter = {"$and": where_clauses}
+
         results = self.collection.query(
             query_embeddings=[query_vector],
             n_results=n_results,
+            where=where_filter,
             include=["documents", "metadatas", "distances"],
         )
 
@@ -344,6 +462,8 @@ class VectorStore:
                 "page": page_clean,
                 "section": section_clean,
                 "score": score,
+                "visibility": meta.get("visibility", DEFAULT_UPLOAD_VISIBILITY),
+                "practice_area": meta.get("practice_area", "General"),
             })
 
         return output

@@ -212,3 +212,109 @@ def test_embed_error_never_leaks_api_key(monkeypatch):
     error_message = str(exc_info.value)
     # Even if the underlying library exception had it, the clean error handling must never log or print it
     assert "Gemini embedding API failed" in error_message
+
+
+# ---------------- Part B Tests: Role-Based Filtering, Metadata & Fingerprint ----------------
+
+def test_query_allowed_visibility_filtering(temp_vstore):
+    """Verify that querying with allowed_visibility filters chunks at retrieval time."""
+    units = [
+        DocUnit(text="Staff intake procedures clause", source="Staff_SOP.pdf", page=1, file_type="pdf"),
+        DocUnit(text="Client fee schedule breakdown", source="Fee_Schedule.pdf", page=1, file_type="pdf"),
+    ]
+    meta = {
+        "Staff_SOP.pdf": {"visibility": "staff", "practice_area": "Operations"},
+        "Fee_Schedule.pdf": {"visibility": "client", "practice_area": "Billing & Fees"},
+    }
+    temp_vstore.index_units(units, {"Staff_SOP.pdf": "h1", "Fee_Schedule.pdf": "h2"}, embed_fn=fake_embed_fn, metadata_by_source=meta)
+
+    # Client query (allowed_visibility={"client"}) must return 0 staff chunks
+    client_results = temp_vstore.query("procedures and fees", allowed_visibility={"client"}, embed_fn=fake_embed_fn)
+    assert len(client_results) == 1
+    assert client_results[0]["source"] == "Fee_Schedule.pdf"
+    assert client_results[0]["visibility"] == "client"
+
+    # Staff query (allowed_visibility={"client", "staff"}) returns both
+    staff_results = temp_vstore.query("procedures and fees", allowed_visibility={"client", "staff"}, embed_fn=fake_embed_fn)
+    assert len(staff_results) == 2
+
+
+def test_query_practice_area_filtering(temp_vstore):
+    """Verify that querying with practice_areas restricts retrieval to matching categories."""
+    units = [
+        DocUnit(text="Family law child custody agreement", source="Family.docx", section="Intro", file_type="docx"),
+        DocUnit(text="Corporate tax structuring advisory", source="Corp.docx", section="Intro", file_type="docx"),
+    ]
+    meta = {
+        "Family.docx": {"visibility": "client", "practice_area": "Family Law"},
+        "Corp.docx": {"visibility": "client", "practice_area": "Corporate"},
+    }
+    temp_vstore.index_units(units, {"Family.docx": "hf", "Corp.docx": "hc"}, embed_fn=fake_embed_fn, metadata_by_source=meta)
+
+    fam_results = temp_vstore.query("law agreement", practice_areas=["Family Law"], embed_fn=fake_embed_fn)
+    assert len(fam_results) == 1
+    assert fam_results[0]["source"] == "Family.docx"
+    assert fam_results[0]["practice_area"] == "Family Law"
+
+    none_results = temp_vstore.query("law agreement", practice_areas=["Operations"], embed_fn=fake_embed_fn)
+    assert len(none_results) == 0
+
+
+def test_set_source_metadata_zero_embedding_calls(temp_vstore):
+    """Verify set_source_metadata updates collection metadata without re-embedding."""
+    units = [
+        DocUnit(text="Initial draft terms", source="Draft.pdf", page=1, file_type="pdf"),
+    ]
+    temp_vstore.index_units(units, {"Draft.pdf": "hd"}, embed_fn=fake_embed_fn)
+
+    # Verify initial default
+    sources = temp_vstore.list_sources()
+    assert sources[0]["visibility"] == "staff"
+    assert sources[0]["practice_area"] == "General"
+
+    # Update metadata
+    updated_count = temp_vstore.set_source_metadata("Draft.pdf", visibility="client", practice_area="Contracts")
+    assert updated_count == 1
+
+    sources_updated = temp_vstore.list_sources()
+    assert sources_updated[0]["visibility"] == "client"
+    assert sources_updated[0]["practice_area"] == "Contracts"
+
+
+def test_migrate_metadata_from_manifest(temp_vstore):
+    """Verify migrate_metadata_from_manifest applies manifest entries with 0 embedding calls."""
+    units = [
+        DocUnit(text="Sample intake rules", source="Client_Intake_SOP.pdf", page=1, file_type="pdf"),
+        DocUnit(text="General brochure", source="Practice_Areas_Brochure.pdf", page=1, file_type="pdf"),
+    ]
+    temp_vstore.index_units(units, {"Client_Intake_SOP.pdf": "h1", "Practice_Areas_Brochure.pdf": "h2"}, embed_fn=fake_embed_fn)
+
+    manifest_data = {
+        "Client_Intake_SOP.pdf": {"visibility": "staff", "practice_area": "Operations"},
+        "Practice_Areas_Brochure.pdf": {"visibility": "client", "practice_area": "General"},
+    }
+
+    report = temp_vstore.migrate_metadata_from_manifest(manifest_data)
+    assert report["Client_Intake_SOP.pdf"] == 1
+    assert report["Practice_Areas_Brochure.pdf"] == 1
+
+    src_map = {s["name"]: s for s in temp_vstore.list_sources()}
+    assert src_map["Client_Intake_SOP.pdf"]["visibility"] == "staff"
+    assert src_map["Client_Intake_SOP.pdf"]["practice_area"] == "Operations"
+    assert src_map["Practice_Areas_Brochure.pdf"]["visibility"] == "client"
+    assert src_map["Practice_Areas_Brochure.pdf"]["practice_area"] == "General"
+
+
+def test_store_fingerprint_changes_on_metadata_edit(temp_vstore):
+    """Verify store fingerprint reflects changes in document visibility and practice area."""
+    units = [
+        DocUnit(text="Fingerprint test content", source="Doc.pdf", page=1, file_type="pdf"),
+    ]
+    temp_vstore.index_units(units, {"Doc.pdf": "hdoc"}, embed_fn=fake_embed_fn)
+    fp_initial = temp_vstore.get_fingerprint()
+
+    temp_vstore.set_source_metadata("Doc.pdf", visibility="client", practice_area="Property")
+    fp_after = temp_vstore.get_fingerprint()
+
+    assert fp_initial != fp_after
+

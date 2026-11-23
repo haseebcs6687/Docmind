@@ -4,24 +4,31 @@ import logging
 from typing import Any, Optional
 import streamlit as st
 
-from src.config import get_gemini_api_key
+from src.config import PRACTICE_AREAS, get_gemini_api_key
 from src.gemini_client import GeminiServiceError
 from src.rag import GenerationError
-from src.ui.components import not_found_card, page_header, source_mini_card
+from src.ui.components import not_found_card, page_header, role_chip, source_mini_card
 from src.ui.state import clear_chat, get_session, get_store, init_messages
 from src.vectorstore import EmbeddingError
 
 logger = logging.getLogger(__name__)
 
-STARTER_QUESTIONS = [
+STAFF_STARTER_QUESTIONS = [
+    "What steps do staff follow during client intake?",
+    "How long does the conflict check take?",
+    "How quickly must a data breach be reported internally?",
+    "Who do I escalate a client dispute to?",
+]
+
+CLIENT_STARTER_QUESTIONS = [
     "What is the initial consultation fee?",
     "What happens if an invoice is paid late?",
     "How long are client files kept?",
-    "How long does the conflict check take?",
+    "What are your office hours?",
 ]
 
 
-def render_chat_page(documents_page: Optional[Any] = None) -> None:
+def render_chat_page(documents_page: Optional[Any] = None, role: str = "Staff") -> None:
     """Render the primary DocMind chat interface."""
     # Startup check: verify Gemini API key is configured
     try:
@@ -41,6 +48,7 @@ def render_chat_page(documents_page: Optional[Any] = None) -> None:
         )
         return
 
+    access_mode = "client" if role == "Client" else "staff"
     store = get_store()
     chunk_count = store.count()
 
@@ -53,6 +61,7 @@ def render_chat_page(documents_page: Optional[Any] = None) -> None:
             ),
             unsafe_allow_html=True,
         )
+        st.markdown(f'<div style="margin-top: -0.5rem; margin-bottom: 0.75rem;">{role_chip(role)}</div>', unsafe_allow_html=True)
         st.info("No documents are currently indexed in DocMind.")
         st.markdown(
             "To begin asking questions with legal citations, head over to the "
@@ -62,7 +71,7 @@ def render_chat_page(documents_page: Optional[Any] = None) -> None:
             st.page_link(documents_page, label="Go to Documents Page", icon=":material/description:")
         return
 
-    # Populated store state: Page header with Clear Conversation ghost button
+    # Populated store state: Page header with role chip & Clear Conversation button
     col_title, col_action = st.columns([5, 1])
     with col_title:
         st.markdown(
@@ -72,10 +81,21 @@ def render_chat_page(documents_page: Optional[Any] = None) -> None:
             ),
             unsafe_allow_html=True,
         )
+        st.markdown(f'<div style="margin-top: -0.5rem; margin-bottom: 0.75rem;">{role_chip(role)}</div>', unsafe_allow_html=True)
     with col_action:
         if st.button("Clear conversation", key="clear_chat_btn", use_container_width=True):
             clear_chat()
             st.rerun()
+
+    # Filters expander for practice area filtering
+    with st.expander("Filters", expanded=False):
+        selected_pas = st.multiselect(
+            "Filter by practice area",
+            options=list(PRACTICE_AREAS),
+            default=[],
+            key=f"pa_filter_{access_mode}",
+            help="Optional: restrict retrieval to documents in specific practice areas",
+        )
 
     messages = init_messages()
 
@@ -83,17 +103,18 @@ def render_chat_page(documents_page: Optional[Any] = None) -> None:
     clicked_prompt: Optional[str] = None
     if not messages:
         st.markdown("##### Suggested questions")
+        starters = CLIENT_STARTER_QUESTIONS if access_mode == "client" else STAFF_STARTER_QUESTIONS
         cols = st.columns(2)
-        for i, prompt_text in enumerate(STARTER_QUESTIONS):
+        for i, prompt_text in enumerate(starters):
             with cols[i % 2]:
-                if st.button(prompt_text, key=f"starter_btn_{i}", use_container_width=True):
+                if st.button(prompt_text, key=f"starter_btn_{access_mode}_{i}", use_container_width=True):
                     clicked_prompt = prompt_text
 
     # Render conversation history
     for msg in messages:
-        role = msg.get("role", "assistant")
-        with st.chat_message(role):
-            if role == "user":
+        msg_role = msg.get("role", "assistant")
+        with st.chat_message(msg_role):
+            if msg_role == "user":
                 st.markdown(msg.get("content", ""))
             else:
                 found = msg.get("found", True)
@@ -109,11 +130,15 @@ def render_chat_page(documents_page: Optional[Any] = None) -> None:
                                 citation_str = s.get("label") or s.get("citation") or s.get("source", "Document")
                                 score_val = s.get("score", 0.0)
                                 snippet_str = s.get("snippet", "").strip()
+                                vis_val = s.get("visibility")
+                                pa_val = s.get("practice_area")
                                 st.markdown(
                                     source_mini_card(
                                         citation=citation_str,
                                         score=score_val,
                                         snippet=snippet_str,
+                                        visibility=vis_val,
+                                        practice_area=pa_val,
                                     ),
                                     unsafe_allow_html=True,
                                 )
@@ -145,10 +170,10 @@ def render_chat_page(documents_page: Optional[Any] = None) -> None:
             st.warning("Your question exceeds the maximum limit of 500 characters. Please shorten it.")
             return
 
-        session = get_session()
+        session = get_session(access_mode=access_mode)
         try:
             with st.spinner("Searching your documents..."):
-                response = session.ask(active_query)
+                response = session.ask(active_query, practice_areas=selected_pas if selected_pas else None)
 
             # Clear any previous error on success
             st.session_state["last_error"] = None
@@ -165,6 +190,8 @@ def render_chat_page(documents_page: Optional[Any] = None) -> None:
                         "label": label,
                         "score": s.get("score", 0.0),
                         "snippet": s.get("snippet", ""),
+                        "visibility": s.get("visibility"),
+                        "practice_area": s.get("practice_area"),
                     })
                 else:
                     label = getattr(s, "citation_label", lambda: str(s))()
@@ -175,6 +202,8 @@ def render_chat_page(documents_page: Optional[Any] = None) -> None:
                         "label": label,
                         "score": getattr(s, "score", 0.0),
                         "snippet": getattr(s, "snippet", ""),
+                        "visibility": getattr(s, "visibility", None),
+                        "practice_area": getattr(s, "practice_area", None),
                     })
 
             latency_sec = getattr(response, "latency_ms", 0.0) / 1000.0

@@ -2,12 +2,17 @@
 
 import argparse
 import hashlib
+import json
 import sys
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
+
+from src.logging_setup import configure_logging
+
+configure_logging()
 
 from src.loaders import load_directory
 from src.vectorstore import VectorStore
@@ -18,7 +23,7 @@ SAMPLE_DIR = PROJECT_ROOT / "data" / "sample_docs"
 def compute_file_hashes(directory: Path) -> dict:
     hashes = {}
     for f in directory.iterdir():
-        if f.is_file() and not f.name.startswith("."):
+        if f.is_file() and not f.name.startswith(".") and f.suffix.lower() in (".pdf", ".docx", ".txt"):
             hashes[f.name] = hashlib.sha256(f.read_bytes()).hexdigest()
     return hashes
 
@@ -42,8 +47,17 @@ def main() -> None:
 
     file_hashes = compute_file_hashes(doc_dir)
 
+    manifest_data = {}
+    manifest_file = doc_dir / "manifest.json"
+    if manifest_file.exists():
+        try:
+            with open(manifest_file, "r", encoding="utf-8") as mf:
+                manifest_data = json.load(mf)
+        except Exception as e:
+            print(f"Warning: Failed to load manifest.json: {e}")
+
     print("Indexing documents into ChromaDB...")
-    index_report = vstore.index_units(units, file_hashes)
+    index_report = vstore.index_units(units, file_hashes, metadata_by_source=manifest_data)
 
     print("\n" + "=" * 80)
     print(" INDEXING SUMMARY")

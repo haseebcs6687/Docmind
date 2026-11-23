@@ -8,7 +8,11 @@ def configure_logging(level: int = logging.WARNING) -> None:
     logging.basicConfig(level=level, format="%(message)s")
     for name in (
         "httpx",
+        "httpx2",
         "httpcore",
+        "httpcore2",
+        "google",
+        "google.auth",
         "google_genai",
         "google.genai",
         "google.genai.models",

@@ -10,6 +10,13 @@ DocMind is configured with a fictional law firm demo dataset (**Sterling & Rauf 
 
 - **Strict Source Citations**: Every factual claim is backed by citations to specific document files and page/section numbers.
 - **Dual Anti-Hallucination Guardrails**: Retrieval similarity score gating (threshold 0.65) combined with structured JSON schema verification (`found: bool`, `used_sources: list[int]`).
+- **Role-Based Document Access Modes (Staff / Client)**:
+  - **Client Mode**: Strict access partition allowing retrieval and citations only from public/client-facing documents (`Fee_Schedule_2026.pdf`, `Practice_Areas_Brochure.pdf`, `Client_FAQ.txt`, `Client_Engagement_Letter_Template.docx`). Read-only document browser with management controls hidden.
+  - **Staff Mode**: Unrestricted access across all operational policies, intake SOPs, and compliance guidelines (`Client_Intake_SOP.pdf`, `Confidentiality_and_Data_Policy.pdf`), plus full document upload, batch indexing, metadata editing, and deletion controls.
+  - **ChromaDB Native Where Filtering**: Access boundaries enforced at retrieval time using ChromaDB `$in` and `$and` clauses (never leaked into LLM context).
+  - **Practice Area Filtering**: Multi-select filter to optionally restrict queries to specific practice domains (`General`, `Billing & Fees`, `Contracts`, `Operations`, `Compliance & Data`, `Family Law`, `Property`, `Corporate`).
+  - **Zero-Cost Metadata Updates & Migration**: Source metadata (`visibility`, `practice_area`) can be updated or migrated from `manifest.json` in place without re-embedding (0 Gemini embedding calls).
+- **Citation Precision Capping**: Validated citations are sorted descending by retrieval similarity score and capped at `MAX_CITATIONS=3` to guarantee high-signal attribution.
 - **Multi-Turn Chat with Query Rewriting**: Follow-up questions referencing previous context ("what about associates?", "is it refundable?") are automatically resolved into standalone search queries.
 - **Rule-Based Small-Talk Filter**: Instant canned responses for greetings, thanks, goodbyes, and capabilities with 0 latency and 0 API calls.
 - **Incremental & Deterministic Indexing**: Files are fingerprinted with SHA-256 hashes to prevent redundant embeddings.

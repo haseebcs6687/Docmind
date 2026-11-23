@@ -426,7 +426,85 @@
   - Verified headless startup via `python -m streamlit run app.py --server.headless true` running cleanly without errors.
   - Confirmed `.env` and `chroma_db/` remain untracked.
 
-## Step 10: Reliability, Bounded Retries, Fallback Model, Quota Guards, and UI Polish
+## Step 11: Role-Based Document Access Modes, Citation Precision, and Verification Fixes
+- **What was built**:
+  - **PART A - Verification Fixes from Step 10**:
+    - **Answer Caching Fix (A1)**: Normalized query cache key (lowercase, stripped punctuation, collapsed whitespace), store fingerprint, access mode, and sorted practice areas. Ensured deep-copied sources to prevent mutation. Repeated questions in live sessions now return identical answer text, identical sources, `cached=True`, `latency_ms=0.0`, and `api_calls=0`. Added pre-rewrite cache check in `ChatSession.ask()` to prevent redundant reformulation LLM calls on repeated queries.
+    - **Citation Precision & Capping (A2)**: Added `MAX_CITATIONS=3` to `src/config.py`. In `generate_rag_answer()`, validated citations are sorted by retrieval similarity score descending and capped at at most 3 citations. Tightened system instruction to prefer the single most authoritative passage and add others only when stating distinct facts.
+    - **Strict Fallback Model Config (A3)**: Verified `GEMINI_FALLBACK_MODEL` is read strictly from `os.getenv` without any hardcoded fallback default in code. Configured `GEMINI_FALLBACK_MODEL=gemini-3.1-flash-lite` in `.env.example`.
+    - **Quiet Logging (A4)**: Configured `src/logging_setup.py` to suppress verbose HTTP request logs from `httpx2`, `httpcore2`, `google`, `google.auth`, and `google_genai`. Standardized startup `configure_logging()` across `app.py`, `scripts/ask.py`, `scripts/build_index.py`, and verification scripts.
+  - **PART B - Document Access Modes (Staff / Client)**:
+    - **Configuration & Manifest**:
+      - Added `ACCESS_MODES = ("staff", "client")`, `PRACTICE_AREAS`, and `DEFAULT_UPLOAD_VISIBILITY = "staff"` to `src/config.py`.
+      - Created `data/sample_docs/manifest.json` mapping all 6 sample documents to their visibility (`staff` vs `client`) and practice area.
+    - **Vector Store Access Controls & Migration**:
+      - Extended chunk metadata in `src/vectorstore.py` with `visibility` and `practice_area`.
+      - Added `set_source_metadata(name, visibility, practice_area) -> int` to update Chroma collection metadata in place without re-embedding (0 Gemini calls).
+      - Added `migrate_metadata_from_manifest(manifest=None) -> Dict[str, int]` to migrate existing stores with 0 embedding calls. Migrated all 71 chunks across 6 documents in milliseconds.
+      - Updated `query()` to apply Chroma `$in` and `$and` native `where` clauses filtering by `allowed_visibility` and `practice_areas` at retrieval time (preventing staff data from ever reaching the prompt).
+      - Updated `list_sources()` to return `visibility` and `practice_area` and accept optional filtering.
+      - Updated `get_fingerprint()` to incorporate document visibility and practice area attributes.
+    - **RAG & Chat Session Integration**:
+      - `ChatSession` accepts `access_mode` (`"staff"` or `"client"`).
+      - Mode mapping: `"client"` restricts retrieval to `{"client"}`; `"staff"` permits `{"client", "staff"}`.
+      - Not-found message remains consistent across modes (`NOT_FOUND` constant).
+    - **Modern UI Enhancements**:
+      - Sidebar "VIEWING AS" segmented control (`Staff` / `Client`, default `Staff`) with caption `"Demo role switch - in production this comes from login (SSO)"`.
+      - Switching role resets conversation history and instantiates an isolated `ChatSession`.
+      - Status chip at sidebar footer dynamically counts only documents visible to the active mode (Staff: 6 docs / 71 chunks; Client: 4 docs / 48 chunks).
+      - Chat page displays mode badge (`Staff view` / `Client view`), a "Filters" expander with practice-area multi-select, and mode-specific starter questions (4 staff, 4 client).
+      - Citation cards display relevance match percentage, visibility chip (`Staff only` / `Client`), and practice area pill.
+      - Documents page in Client mode is read-only (hides upload, sample load, edit, and delete controls; renders informational notice `"Document management is available in Staff mode."`).
+      - Documents page in Staff mode features a 6-column table with visibility and practice area columns, an in-place popover to edit metadata (`set_source_metadata`), delete buttons, and batch upload dropdowns for visibility and practice area (defaulting to `staff` and `General`).
+    - **Ground Truth Answer Key**:
+      - Added `Client-visible` column (`Y` / `N`) to all 41 facts in `eval/dataset_facts.md`.
+  - **PART C - Test Suite**:
+    - Expanded test suite to **78 unit tests** across `test_vectorstore.py`, `test_rag.py`, `test_reliability.py`, `test_loaders.py`, `test_chunking.py`, and `test_ui_smoke.py`.
+    - 100% offline tests passing without real API calls.
+  - **PART D - Live Verification**:
+    - **D1 (Canary Isolation)**: Created `scripts/verify_canaries.py`. Proved 3 staff canaries (`"Data Protection Officer"`, `"AES-256"`, `"Tier 1: Frontline"`) appear in staff documents (`Confidentiality_and_Data_Policy.pdf`, `Client_Intake_SOP.pdf`) and are completely absent from all 4 client documents.
+    - **D2 (Retrieval Access Checks)**: Created `scripts/check_access.py`. Verified direct Chroma queries for both modes across 3 canary queries and 8 starter questions (0 generation calls). Proved Client mode returned 0 staff documents across all queries.
+    - **D3 & D4 (Live Generation & Live Caching)**: Created `scripts/verify_live_generation.py`. Executed 3 live generation calls with 6-second pacing:
+      1. Canary in Client mode: returned `Found: False` (`"I couldn't find this in the uploaded documents."`, 0 citations).
+      2. Canary in Staff mode: returned `Found: True` (`"All digital client documents... encrypted at rest using the AES-256 standard."`, cited `Confidentiality_and_Data_Policy.pdf, p. 2` with score 0.7090).
+      3. Consultation fee in Client mode: returned `Found: True` (`"PKR 5,000 for a 45-minute initial consultation."`, cited `Fee_Schedule_2026.pdf, p. 1`).
+      4. Live Cache Hit: repeated consultation fee query in the same session returned identical answer text, identical sources, `cached=True`, `latency_ms=0.0`, and `api_calls=0`.
+    - **D5 (Headless UI Startup)**: Verified headless execution via `streamlit run app.py --server.headless true --server.port 8502` running cleanly without errors.
+- **Python Version**: Python 3.13.15
+- **Files Touched**:
+  - `src/config.py`
+  - `.env.example`
+  - `src/logging_setup.py`
+  - `data/sample_docs/manifest.json`
+  - `src/vectorstore.py`
+  - `src/rag.py`
+  - `src/loaders.py`
+  - `src/ui/styles.css`
+  - `src/ui/components.py`
+  - `src/ui/state.py`
+  - `app.py`
+  - `src/ui/chat_page.py`
+  - `src/ui/documents_page.py`
+  - `scripts/build_index.py`
+  - `scripts/ask.py`
+  - `scripts/verify_canaries.py`
+  - `scripts/check_access.py`
+  - `scripts/verify_live_generation.py`
+  - `eval/dataset_facts.md`
+  - `tests/test_vectorstore.py`
+  - `tests/test_rag.py`
+  - `tests/test_reliability.py`
+  - `tests/test_ui_smoke.py`
+  - `README.md`
+  - `docs/PROGRESS.md`
+- **How it was tested**:
+  - 78/78 passing pytest unit tests (0 failures, 0 API calls).
+  - Scripted text search proving 0 canaries in client documents.
+  - Real embedding retrieval checks (`scripts/check_access.py`) confirming native Chroma where-filtering in both modes.
+  - Live Gemini generation calls (`scripts/verify_live_generation.py`) confirming canary gate in client mode, staff fact retrieval in staff mode, and 0.0ms live cache hits.
+  - Headless Streamlit startup test.
+  - Confirmed `.env` and `chroma_db/` remain untracked.
+
 - **What was built**:
   - **Single Bounded Retry Layer**:
     - Centralized Gemini client creation in `src/gemini_client.py` with explicit request timeout (`GEMINI_TIMEOUT_SECONDS=25`, passed in milliseconds to `types.HttpOptions(timeout=25000)`) and disabled internal SDK retries (`types.HttpRetryOptions(attempts=1)`).

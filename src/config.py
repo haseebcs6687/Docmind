@@ -28,10 +28,25 @@ EMBED_BATCH_SLEEP_SECONDS: float = float(os.getenv("EMBED_BATCH_SLEEP_SECONDS", 
 GEMINI_TIMEOUT_SECONDS: int = int(os.getenv("GEMINI_TIMEOUT_SECONDS", "25"))
 TOP_K: int = int(os.getenv("TOP_K", "5"))
 SCORE_THRESHOLD: float = float(os.getenv("SCORE_THRESHOLD", "0.65"))
+MAX_CITATIONS: int = int(os.getenv("MAX_CITATIONS", "3"))
 GEN_TEMPERATURE: float = float(os.getenv("GEN_TEMPERATURE", "0.1"))
 GEN_MAX_RETRIES: int = int(os.getenv("GEN_MAX_RETRIES", "3"))
 GEN_TOTAL_BUDGET_SECONDS: float = float(os.getenv("GEN_TOTAL_BUDGET_SECONDS", "40.0"))
 HISTORY_TURNS: int = int(os.getenv("HISTORY_TURNS", "4"))
+
+# Document Access Modes & Practice Areas
+ACCESS_MODES = ("staff", "client")
+PRACTICE_AREAS = (
+    "General",
+    "Billing & Fees",
+    "Contracts",
+    "Operations",
+    "Compliance & Data",
+    "Family Law",
+    "Property",
+    "Corporate",
+)
+DEFAULT_UPLOAD_VISIBILITY = "staff"
 
 # Demo Quota and Session Limits
 MIN_SECONDS_BETWEEN_QUESTIONS: float = float(os.getenv("MIN_SECONDS_BETWEEN_QUESTIONS", "3.0"))

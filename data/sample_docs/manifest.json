@@ -1,0 +1,26 @@
+{
+  "Fee_Schedule_2026.pdf": {
+    "visibility": "client",
+    "practice_area": "Billing & Fees"
+  },
+  "Practice_Areas_Brochure.pdf": {
+    "visibility": "client",
+    "practice_area": "General"
+  },
+  "Client_FAQ.txt": {
+    "visibility": "client",
+    "practice_area": "General"
+  },
+  "Client_Engagement_Letter_Template.docx": {
+    "visibility": "client",
+    "practice_area": "Contracts"
+  },
+  "Client_Intake_SOP.pdf": {
+    "visibility": "staff",
+    "practice_area": "Operations"
+  },
+  "Confidentiality_and_Data_Policy.pdf": {
+    "visibility": "staff",
+    "practice_area": "Compliance & Data"
+  }
+}

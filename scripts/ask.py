@@ -4,18 +4,20 @@ import logging
 import os
 import sys
 
+# Ensure project root is in sys.path
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
+from src.logging_setup import configure_logging
+
+# Configure logging first to suppress third-party HTTP transport logs
+configure_logging()
+
 # Ensure proper stdout encoding on Windows
 if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
     try:
         sys.stdout.reconfigure(encoding="utf-8")
     except Exception:
         pass
-
-# Configure root logger to output info/warning messages to stderr
-logging.basicConfig(level=logging.INFO, format="%(message)s")
-
-# Ensure project root is in sys.path
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from src.config import SCORE_THRESHOLD
 from src.rag import answer

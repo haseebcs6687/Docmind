@@ -27,11 +27,19 @@ from src.gemini_client import (
     call_with_retry_and_fallback,
     classify_error,
 )
-from src.rag import AnswerCache, ChatSession, RagResponse, answer
+from src.rag import GLOBAL_ANSWER_CACHE, AnswerCache, ChatSession, RagResponse, answer
 from src.vectorstore import VectorStore
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 APP_PATH = str(PROJECT_ROOT / "app.py")
+
+
+@pytest.fixture(autouse=True)
+def clear_rag_cache():
+    """Ensure global answer cache is empty before each reliability test."""
+    GLOBAL_ANSWER_CACHE.clear()
+    yield
+    GLOBAL_ANSWER_CACHE.clear()
 
 
 # ---------------------------------------------------------------------------
@@ -56,7 +64,7 @@ class MockStore:
         self._fingerprint = fingerprint
         self.last_query = None
 
-    def query(self, question, k=5):
+    def query(self, question, k=5, *args, **kwargs):
         self.last_query = question
         return self.results
 

@@ -388,8 +388,8 @@ def load_directory(dir_path: Union[str, Path]) -> Tuple[List[DocUnit], Dict[str,
 
     # Sort files for deterministic loading order
     for item in sorted(directory.iterdir(), key=lambda p: p.name.lower()):
-        # Skip directories and hidden/placeholder files
-        if item.is_dir() or item.name.startswith("."):
+        # Skip directories, metadata files, and hidden/placeholder files
+        if item.is_dir() or item.name.startswith(".") or item.name == "manifest.json":
             continue
 
         ext = item.suffix.lower()

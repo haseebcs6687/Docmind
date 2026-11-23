@@ -1,7 +1,7 @@
 """Reusable HTML UI components with strict HTML escaping and accessible contrast."""
 
 import html
-from typing import List
+from typing import List, Optional
 
 
 def page_header(title: str, subtitle: str) -> str:
@@ -80,8 +80,28 @@ def stat_cards_grid(cards_html: List[str]) -> str:
     return f'<div class="stat-cards-grid">{"".join(cards_html)}</div>'
 
 
-def source_mini_card(citation: str, score: float, snippet: str) -> str:
-    """Render a styled mini card for a single source citation with relevance chip."""
+def role_chip(role: str) -> str:
+    """Render a header badge representing current viewing mode (Staff view / Client view)."""
+    clean_role = (role or "Staff").strip()
+    is_client = clean_role.lower() == "client"
+    css_class = "role-chip-client" if is_client else "role-chip-staff"
+    if clean_role.lower() == "client":
+        label = "Client view"
+    elif clean_role.lower() == "staff":
+        label = "Staff view"
+    else:
+        label = f"{clean_role} view"
+    return f'<span class="role-chip {css_class}">{html.escape(label)}</span>'
+
+
+def source_mini_card(
+    citation: str,
+    score: float,
+    snippet: str,
+    visibility: Optional[str] = None,
+    practice_area: Optional[str] = None,
+) -> str:
+    """Render a styled mini card for a single source citation with relevance, visibility, and practice area chips."""
     score_pct = int(score * 100)
     if score_pct >= 75:
         chip_class = "chip-green"
@@ -93,11 +113,25 @@ def source_mini_card(citation: str, score: float, snippet: str) -> str:
     safe_citation = html.escape(citation)
     safe_snippet = html.escape(snippet)
 
+    chips_html = [f'<span class="relevance-chip {chip_class}">{score_pct}% Match</span>']
+
+    if visibility:
+        vis_clean = visibility.lower()
+        if vis_clean == "staff":
+            chips_html.append('<span class="type-chip-staff">Staff only</span>')
+        else:
+            chips_html.append('<span class="type-chip-client">Client</span>')
+
+    if practice_area:
+        chips_html.append(f'<span class="type-chip-generic">{html.escape(practice_area)}</span>')
+
     return (
         f'<div class="source-mini-card">'
         f'  <div class="source-header">'
         f'    <span class="source-label">{safe_citation}</span>'
-        f'    <span class="relevance-chip {chip_class}">{score_pct}% Match</span>'
+        f'    <div style="display: flex; gap: 0.4rem; align-items: center; flex-wrap: wrap;">'
+        f'      {"".join(chips_html)}'
+        f'    </div>'
         f'  </div>'
         f'  <div class="source-snippet">"{safe_snippet}"</div>'
         f'</div>'

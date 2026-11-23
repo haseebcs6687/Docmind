@@ -17,16 +17,18 @@ def get_store() -> VectorStore:
     return VectorStore()
 
 
-def get_session() -> ChatSession:
-    """Return or initialize the per-session ChatSession."""
-    if "chat_session" not in st.session_state:
+def get_session(access_mode: str = "staff") -> ChatSession:
+    """Return or initialize the per-session ChatSession for the specified access mode."""
+    session_key = f"chat_session_{access_mode}"
+    if session_key not in st.session_state:
         store = get_store()
-        st.session_state.chat_session = ChatSession(
+        st.session_state[session_key] = ChatSession(
             store=store,
             cooldown_seconds=MIN_SECONDS_BETWEEN_QUESTIONS,
             max_questions=MAX_QUESTIONS_PER_SESSION,
+            access_mode=access_mode,
         )
-    return st.session_state.chat_session
+    return st.session_state[session_key]
 
 
 def init_messages() -> List[Dict[str, Any]]:
@@ -37,7 +39,10 @@ def init_messages() -> List[Dict[str, Any]]:
 
 
 def clear_chat() -> None:
-    """Clear conversation history and reset ChatSession."""
+    """Clear conversation history and reset ChatSession across modes."""
+    for key in list(st.session_state.keys()):
+        if key.startswith("chat_session_"):
+            st.session_state[key].reset()
     if "chat_session" in st.session_state:
         st.session_state.chat_session.reset()
     st.session_state.messages = []

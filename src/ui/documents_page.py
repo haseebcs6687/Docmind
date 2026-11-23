@@ -1,13 +1,21 @@
 """Documents page view for loading sample docs, uploading files, and managing the vector store."""
 
 import hashlib
+import json
 import logging
 from pathlib import Path
 from typing import Any, Dict
 import streamlit as st
 
 from src.chunking import chunk_units
-from src.config import MAX_CHUNKS_PER_UPLOAD_BATCH, MAX_TOTAL_CHUNKS, MAX_UPLOAD_MB
+from src.config import (
+    ACCESS_MODES,
+    DEFAULT_UPLOAD_VISIBILITY,
+    MAX_CHUNKS_PER_UPLOAD_BATCH,
+    MAX_TOTAL_CHUNKS,
+    MAX_UPLOAD_MB,
+    PRACTICE_AREAS,
+)
 from src.gemini_client import ErrorCategory, classify_error
 from src.loaders import load_directory, load_file
 from src.ui.components import (
@@ -26,18 +34,20 @@ SAMPLE_DIR = PROJECT_ROOT / "data" / "sample_docs"
 
 
 def compute_dir_hashes(directory: Path) -> Dict[str, str]:
-    """Compute SHA-256 hashes for all non-hidden files in a directory."""
+    """Compute SHA-256 hashes for all non-hidden document files in a directory."""
     hashes: Dict[str, str] = {}
     if not directory.exists():
         return hashes
     for f in directory.iterdir():
-        if f.is_file() and not f.name.startswith("."):
+        if f.is_file() and not f.name.startswith(".") and f.suffix.lower() in (".pdf", ".docx", ".txt"):
             hashes[f.name] = hashlib.sha256(f.read_bytes()).hexdigest()
     return hashes
 
 
-def render_documents_page() -> None:
+def render_documents_page(role: str = "Staff") -> None:
     """Render the documents management interface."""
+    is_client = role == "Client"
+
     st.markdown(
         page_header(
             title="Document Management",
@@ -47,9 +57,10 @@ def render_documents_page() -> None:
     )
 
     store = get_store()
-    sources = store.list_sources()
+    allowed_vis = {"client"} if is_client else None
+    sources = store.list_sources(allowed_visibility=allowed_vis)
     doc_count = len(sources)
-    chunk_count = store.count()
+    chunk_count = sum(s["chunk_count"] for s in sources)
 
     # Row of 4 pastel stat cards
     cards = [
@@ -60,7 +71,39 @@ def render_documents_page() -> None:
     ]
     st.markdown(stat_cards_grid(cards), unsafe_allow_html=True)
 
-    # Demo callout disclaimer
+    if is_client:
+        # Client mode: Read-only view
+        st.markdown(
+            demo_callout_card("Document management is available in Staff mode."),
+            unsafe_allow_html=True,
+        )
+
+        with st.container(border=True):
+            st.subheader("Client-Accessible Documents")
+            if not sources:
+                st.write("No client-visible documents are currently indexed.")
+            else:
+                # Read-only table columns: Document Name, Format, Practice Area, Chunks
+                h1, h2, h3, h4 = st.columns([5, 2, 3, 2])
+                h1.markdown("**Document Name**")
+                h2.markdown("**Format**")
+                h3.markdown("**Practice Area**")
+                h4.markdown("**Chunks**")
+
+                for s in sources:
+                    s_name = s["name"]
+                    s_chunks = s["chunk_count"]
+                    s_type = s.get("file_type") or "DOC"
+                    s_pa = s.get("practice_area") or "General"
+
+                    c1, c2, c3, c4 = st.columns([5, 2, 3, 2])
+                    c1.write(f"📄 {s_name}")
+                    c2.markdown(file_type_chip(s_type), unsafe_allow_html=True)
+                    c3.write(s_pa)
+                    c4.write(f"{s_chunks} chunks")
+        return
+
+    # Staff mode: Full management view
     st.markdown(
         demo_callout_card(
             "Fictional Demo Environment: Sterling & Rauf Law Associates is a fictional law firm. "
@@ -87,7 +130,16 @@ def render_documents_page() -> None:
             with st.spinner("Loading and indexing sample documents..."):
                 try:
                     units, load_report = load_directory(SAMPLE_DIR)
-                    rep = store.index_units(units, sample_hashes)
+                    manifest_path = SAMPLE_DIR / "manifest.json"
+                    metadata_by_source = {}
+                    if manifest_path.exists():
+                        try:
+                            with open(manifest_path, "r", encoding="utf-8") as mf:
+                                metadata_by_source = json.load(mf)
+                        except Exception:
+                            pass
+
+                    rep = store.index_units(units, sample_hashes, metadata_by_source=metadata_by_source)
                     st.success(
                         f"Successfully indexed {len(rep['indexed_files'])} document(s) "
                         f"({rep['total_chunks_added']} chunks added) in {rep['embedding_calls']} embedding call(s)."
@@ -106,6 +158,24 @@ def render_documents_page() -> None:
             f"Upload PDF, DOCX, or TXT documents (up to {MAX_UPLOAD_MB} MB each, maximum 10 files, "
             f"limit {MAX_CHUNKS_PER_UPLOAD_BATCH} chunks per batch, {MAX_TOTAL_CHUNKS} total chunks in store)."
         )
+
+        col_u1, col_u2 = st.columns(2)
+        with col_u1:
+            upload_vis = st.selectbox(
+                "Document Visibility",
+                options=list(ACCESS_MODES),
+                index=list(ACCESS_MODES).index(DEFAULT_UPLOAD_VISIBILITY),
+                key="upload_visibility_select",
+                help="Choose whether uploaded documents are staff-only or accessible to clients.",
+            )
+        with col_u2:
+            upload_pa = st.selectbox(
+                "Practice Area",
+                options=list(PRACTICE_AREAS),
+                index=0,
+                key="upload_practice_area_select",
+                help="Assign a practice area classification.",
+            )
 
         uploaded_files = st.file_uploader(
             "Choose files to upload",
@@ -165,10 +235,19 @@ def render_documents_page() -> None:
                             indexed_count = 0
                             quota_exhausted = False
 
+                            upload_meta = {
+                                fn: {"visibility": upload_vis, "practice_area": upload_pa}
+                                for fn, _, _, _ in parsed_batch
+                            }
+
                             for filename, file_bytes, units, _ in parsed_batch:
                                 try:
                                     f_hash = hashlib.sha256(file_bytes).hexdigest()
-                                    rep = store.index_units(units, {filename: f_hash})
+                                    rep = store.index_units(
+                                        units,
+                                        {filename: f_hash},
+                                        metadata_by_source=upload_meta,
+                                    )
 
                                     if rep["indexed_files"]:
                                         chunks_added = rep["total_chunks_added"]
@@ -196,32 +275,66 @@ def render_documents_page() -> None:
                             )
                             st.rerun()
 
-    # Indexed Documents Section (White rounded card with clean table list)
+    # Indexed Documents Section (White rounded card with table list)
     with st.container(border=True):
         st.subheader("Indexed Documents")
         if not sources:
             st.write("No documents are currently indexed.")
         else:
             # Table Header
-            h1, h2, h3, h4 = st.columns([5, 2, 2, 2])
+            h1, h2, h3, h4, h5, h6 = st.columns([4, 1.5, 2, 1.5, 1.5, 1.5])
             h1.markdown("**Document Name**")
             h2.markdown("**Format**")
-            h3.markdown("**Chunks**")
-            h4.markdown("**Action**")
+            h3.markdown("**Practice Area**")
+            h4.markdown("**Visibility**")
+            h5.markdown("**Chunks**")
+            h6.markdown("**Actions**")
 
             for s in sources:
                 s_name = s["name"]
                 s_chunks = s["chunk_count"]
                 s_type = s.get("file_type") or "DOC"
+                s_vis = s.get("visibility") or "staff"
+                s_pa = s.get("practice_area") or "General"
 
-                c1, c2, c3, c4 = st.columns([5, 2, 2, 2])
+                c1, c2, c3, c4, c5, c6 = st.columns([4, 1.5, 2, 1.5, 1.5, 1.5])
                 c1.write(f"📄 {s_name}")
                 c2.markdown(file_type_chip(s_type), unsafe_allow_html=True)
-                c3.write(f"{s_chunks} chunks")
-                if c4.button("Delete", key=f"del_{s_name}", type="secondary"):
-                    deleted_chunks = store.delete_source(s_name)
-                    st.success(f"Deleted '{s_name}' ({deleted_chunks} chunks removed).")
-                    st.rerun()
+                c3.write(s_pa)
+                vis_badge = "Staff only" if s_vis == "staff" else "Client"
+                vis_cls = "type-chip-staff" if s_vis == "staff" else "type-chip-client"
+                c4.markdown(f'<span class="{vis_cls}">{vis_badge}</span>', unsafe_allow_html=True)
+                c5.write(f"{s_chunks} chunks")
+
+                with c6:
+                    with st.popover("Edit"):
+                        st.markdown(f"**Edit `{s_name}`**")
+                        cur_vis = s.get("visibility", "staff")
+                        cur_pa = s.get("practice_area", "General")
+                        vis_idx = list(ACCESS_MODES).index(cur_vis) if cur_vis in ACCESS_MODES else 0
+                        pa_idx = list(PRACTICE_AREAS).index(cur_pa) if cur_pa in PRACTICE_AREAS else 0
+
+                        new_vis = st.selectbox(
+                            "Visibility",
+                            options=list(ACCESS_MODES),
+                            index=vis_idx,
+                            key=f"edit_vis_{s_name}",
+                        )
+                        new_pa = st.selectbox(
+                            "Practice Area",
+                            options=list(PRACTICE_AREAS),
+                            index=pa_idx,
+                            key=f"edit_pa_{s_name}",
+                        )
+                        if st.button("Save", key=f"save_meta_{s_name}", type="primary"):
+                            store.set_source_metadata(s_name, new_vis, new_pa)
+                            st.success("Metadata updated.")
+                            st.rerun()
+
+                    if st.button("Delete", key=f"del_{s_name}", type="secondary"):
+                        deleted_chunks = store.delete_source(s_name)
+                        st.success(f"Deleted '{s_name}' ({deleted_chunks} chunks removed).")
+                        st.rerun()
 
     # Danger Zone: Delete All
     st.markdown("---")
