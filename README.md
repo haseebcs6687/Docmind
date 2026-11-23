@@ -13,6 +13,10 @@ DocMind is configured with a fictional law firm demo dataset (**Sterling & Rauf 
 - **Multi-Turn Chat with Query Rewriting**: Follow-up questions referencing previous context ("what about associates?", "is it refundable?") are automatically resolved into standalone search queries.
 - **Rule-Based Small-Talk Filter**: Instant canned responses for greetings, thanks, goodbyes, and capabilities with 0 latency and 0 API calls.
 - **Incremental & Deterministic Indexing**: Files are fingerprinted with SHA-256 hashes to prevent redundant embeddings.
+- **Reliability & Bounded Retries**: Single observable retry layer with bounded latency, exponential backoff with jitter, hard total time budget (40s), and SDK internal retries disabled (`HttpRetryOptions(attempts=1)`).
+- **Automatic Fallback Model**: Seamless failover to `GEMINI_FALLBACK_MODEL` (`gemini-3.1-flash-lite`) if the primary model (`gemini-3.5-flash-lite`) experiences 503 server busy spikes or is unavailable.
+- **In-Process Answer Caching**: Fast TTL caching (30 minutes) keyed by query and vector store fingerprint; cached responses return instantly (0.0 ms, 0 API calls) and invalidate automatically when documents change.
+- **Public Demo Quota Guards**: Session-level cooldown (3.0s between questions) and ceiling (40 questions/session), plus pre-upload chunk estimation guards (300 chunks/batch, 1,500 total chunks) to prevent quota exhaustion.
 - **Modern Streamlit UI**: Clean dashboard theme featuring a near-black sidebar (`#0F1117`) with workspace navigation pills and live corpus stats, light grey workspace (`#F5F6F8`), white rounded cards, pastel stat cards, responsive chat interface with starter questions, expandable source previews with relevance percentage chips, and document management with multi-file upload.
 - **Privacy & Safety**: Automatic redaction prevents API keys or stack traces from leaking to client UI or application logs.
 
@@ -122,7 +126,7 @@ Navigate to `http://localhost:8501` in your browser.
 
 ## Running Tests
 
-Run the offline pytest test suite (42 tests, 0 real API calls):
+Run the offline pytest test suite (65 tests, 0 real API calls):
 
 ```bash
 python -m pytest

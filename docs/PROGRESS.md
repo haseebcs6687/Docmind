@@ -426,4 +426,59 @@
   - Verified headless startup via `python -m streamlit run app.py --server.headless true` running cleanly without errors.
   - Confirmed `.env` and `chroma_db/` remain untracked.
 
+## Step 10: Reliability, Bounded Retries, Fallback Model, Quota Guards, and UI Polish
+- **What was built**:
+  - **Single Bounded Retry Layer**:
+    - Centralized Gemini client creation in `src/gemini_client.py` with explicit request timeout (`GEMINI_TIMEOUT_SECONDS=25`, passed in milliseconds to `types.HttpOptions(timeout=25000)`) and disabled internal SDK retries (`types.HttpRetryOptions(attempts=1)`).
+    - Single, observable retry loop in `call_with_retry_and_fallback()` with exponential backoff, jitter (0.1s - 0.5s), and hard total time budget (`GEN_TOTAL_BUDGET_SECONDS=40.0`).
+    - Standardized retry logging: `[Retry] attempt {attempt}/{max_retries}, wait {wait:.2f}s, error {exc_class}`.
+  - **Error Classification (9 Categories)**:
+    - `ErrorCategory` enum: `RATE_LIMIT_MINUTE`, `QUOTA_DAILY`, `SERVER_BUSY` (500/502/503/504), `TIMEOUT`, `NETWORK`, `MODEL_UNAVAILABLE` (404), `AUTH` (401/403), `BAD_REQUEST` (400), `UNKNOWN`.
+    - User-friendly messages defined in `FRIENDLY_ERROR_MESSAGES` mapping cleanly to each category.
+    - `classify_error()` inspects HTTP status codes, error strings, and structured details (distinguishing per-minute quota from daily quota limits).
+    - `_sanitize_error_message()` actively strips API keys (`AIza...`) and credentials from all exception representations and logs.
+  - **Automatic Fallback Model**:
+    - Automatic switch to `GEMINI_FALLBACK_MODEL` (`gemini-3.1-flash-lite`) if primary model (`gemini-3.5-flash-lite`) returns 404 (`MODEL_UNAVAILABLE`) or exhausts retries with 503/504 (`SERVER_BUSY` or `TIMEOUT`).
+    - `RagResponse` extended with `model_used: str`, `fallback_used: bool`, and `cached: bool`.
+  - **Answer Caching**:
+    - `AnswerCache` with TTL (`ANSWER_CACHE_TTL_SECONDS=1800`, max 200 entries) in `src/rag.py`.
+    - Cached answers return in 0.0 ms latency and 0 API calls with `cached=True`.
+    - Automatic invalidation via `VectorStore.get_fingerprint()` whenever documents are added, modified, or deleted.
+  - **Demo Quota Protection**:
+    - Per-session cooldown: `MIN_SECONDS_BETWEEN_QUESTIONS=3.0` in `ChatSession`.
+    - Per-session ceiling: `MAX_QUESTIONS_PER_SESSION=40` in `ChatSession`.
+    - Rule-based small-talk filter bypasses cooldown and does not increment question limits.
+    - Pre-upload chunk estimation guard in `src/ui/documents_page.py` rejects batch uploads exceeding `MAX_CHUNKS_PER_UPLOAD_BATCH` (300 chunks) or store total exceeding `MAX_TOTAL_CHUNKS` (1,500 chunks) in memory before making any embedding calls.
+  - **UI Polish**:
+    - `src/ui/chat_page.py`: Clean startup card if `GEMINI_API_KEY` is unconfigured; response time shows `• cached` badge; friendly error callout card with "Try again" button that re-submits the failed query.
+    - `src/ui/documents_page.py`: Live batch upload estimation notes and graceful quota exhaustion break during indexing.
+    - `scripts/ask.py`: Displays `Model Used`, `Fallback Used`, and `Cached` status.
+  - **Unit Testing**:
+    - Comprehensive offline test suite in `tests/test_reliability.py` (21 tests) covering all 9 error classifications, 503 retry, 503 fallback, 404 fallback, daily quota no retry, total time budget enforcement, credential redaction, session cooldown, session limits, small talk bypass, cache hit & invalidation, upload guard limits, and AppTest missing API key setup check.
+- **Python Version**: Python 3.13.15
+- **Files Touched**:
+  - `src/config.py`
+  - `.env.example`
+  - `src/gemini_client.py`
+  - `src/vectorstore.py`
+  - `src/rag.py`
+  - `src/ui/state.py`
+  - `src/ui/chat_page.py`
+  - `src/ui/documents_page.py`
+  - `scripts/ask.py`
+  - `tests/test_reliability.py`
+  - `tests/test_rag.py`
+  - `tests/test_vectorstore.py`
+  - `README.md`
+  - `docs/PROGRESS.md`
+- **How it was tested**:
+  - Full test suite: 65/65 tests passed via `pytest` (0 real API calls).
+  - Mode B testing with `scripts/check_gemini.py`: verified primary model `gemini-3.5-flash-lite`, fallback model `gemini-3.1-flash-lite`, and embedding model `gemini-embedding-001` (3072 dims).
+  - Live query testing with `scripts/ask.py`:
+    - First run on consultation fee: transient 503 caught and retried, grounded answer returned with citations.
+    - Second run on same query in same process: instant cache hit (`Latency: 0.0 ms | API calls: 0 | Cached: Yes`).
+    - Negative test on "Do you have parking space?": gated on score threshold (0.62 < 0.65) with 0 LLM calls.
+  - Verified git status: `.env` and `chroma_db/` remain untracked.
+
+
 

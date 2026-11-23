@@ -30,6 +30,9 @@ class MockStore:
     def count(self):
         return self._doc_count
 
+    def get_fingerprint(self):
+        return "mock_fp_123"
+
 
 def _sample_context_results(scores=(0.85, 0.75, 0.70)):
     """Generate sample query results matching VectorStore return format."""

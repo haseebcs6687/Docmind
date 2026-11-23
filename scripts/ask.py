@@ -28,6 +28,9 @@ def print_response(question: str, resp) -> None:
     print(f"Question: {question}")
     print(f"Retrieved: top score = {resp.top_score:.2f} (threshold = {SCORE_THRESHOLD:.2f})")
     print(f"Found: {'Yes' if resp.found else 'No'}")
+    print(f"Model Used: {getattr(resp, 'model_used', 'N/A')}")
+    print(f"Fallback Used: {'Yes' if getattr(resp, 'fallback_used', False) else 'No'}")
+    print(f"Cached: {'Yes' if getattr(resp, 'cached', False) else 'No'}")
     print(f"\nAnswer:\n{resp.answer}\n")
 
     if resp.found and resp.sources:

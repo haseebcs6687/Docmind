@@ -4,6 +4,8 @@ import logging
 from typing import Any, Optional
 import streamlit as st
 
+from src.config import get_gemini_api_key
+from src.gemini_client import GeminiServiceError
 from src.rag import GenerationError
 from src.ui.components import not_found_card, page_header, source_mini_card
 from src.ui.state import clear_chat, get_session, get_store, init_messages
@@ -21,6 +23,24 @@ STARTER_QUESTIONS = [
 
 def render_chat_page(documents_page: Optional[Any] = None) -> None:
     """Render the primary DocMind chat interface."""
+    # Startup check: verify Gemini API key is configured
+    try:
+        get_gemini_api_key()
+    except ValueError:
+        st.markdown(
+            page_header(
+                title="Ask your documents",
+                subtitle="Answers are grounded in the uploaded files and always cite their source.",
+            ),
+            unsafe_allow_html=True,
+        )
+        st.warning(
+            "**Gemini API Key Required**\n\n"
+            "DocMind requires a Google Gemini API key to generate answers and embeddings. "
+            "Please configure `GEMINI_API_KEY` in your environment or `.env` file to begin."
+        )
+        return
+
     store = get_store()
     chunk_count = store.count()
 
@@ -100,10 +120,21 @@ def render_chat_page(documents_page: Optional[Any] = None) -> None:
 
                 latency = msg.get("latency_seconds")
                 if latency is not None:
+                    cached_tag = ' • <span style="color:#059669; font-weight:600;">cached</span>' if msg.get("cached") else ""
                     st.markdown(
-                        f'<div class="latency-caption">⏱️ Response time: {latency:.2f}s</div>',
+                        f'<div class="latency-caption">⏱️ Response time: {latency:.2f}s{cached_tag}</div>',
                         unsafe_allow_html=True,
                     )
+
+    # Friendly error callout with "Try again" button if a previous request failed
+    if st.session_state.get("last_error"):
+        st.error(st.session_state["last_error"])
+        if st.session_state.get("last_failed_query"):
+            if st.button("Try again", key="try_again_btn"):
+                clicked_prompt = st.session_state["last_failed_query"]
+                st.session_state["last_error"] = None
+                st.session_state["last_failed_query"] = None
+                st.rerun()
 
     # Chat input widget (max 500 characters)
     user_input = st.chat_input("Ask a question about your documents...", max_chars=500)
@@ -118,6 +149,10 @@ def render_chat_page(documents_page: Optional[Any] = None) -> None:
         try:
             with st.spinner("Searching your documents..."):
                 response = session.ask(active_query)
+
+            # Clear any previous error on success
+            st.session_state["last_error"] = None
+            st.session_state["last_failed_query"] = None
 
             formatted_sources = []
             for s in response.sources:
@@ -151,21 +186,29 @@ def render_chat_page(documents_page: Optional[Any] = None) -> None:
                 "found": response.found,
                 "sources": formatted_sources,
                 "latency_seconds": latency_sec,
+                "cached": getattr(response, "cached", False),
+                "model_used": getattr(response, "model_used", ""),
+                "fallback_used": getattr(response, "fallback_used", False),
             })
             st.rerun()
 
-        except EmbeddingError as e:
-            logger.error("EmbeddingError in chat UI: %s", type(e).__name__)
-            st.error(
-                "An error occurred while generating embeddings. "
-                "If this is a rate limit, please wait a minute and try again."
-            )
-        except GenerationError as e:
-            logger.error("GenerationError in chat UI: %s", type(e).__name__)
-            st.error("An error occurred while generating the answer. Please try again.")
+        except GeminiServiceError as e:
+            logger.error("GeminiServiceError in chat UI: %s", getattr(e, "category", type(e).__name__))
+            st.session_state["last_error"] = e.user_message
+            st.session_state["last_failed_query"] = active_query
+            st.rerun()
+        except (EmbeddingError, GenerationError) as e:
+            logger.error("RAG error in chat UI: %s", type(e).__name__)
+            user_msg = getattr(e, "user_message", None) or "An error occurred while processing your question. Please try again."
+            st.session_state["last_error"] = user_msg
+            st.session_state["last_failed_query"] = active_query
+            st.rerun()
         except Exception as e:
             logger.error("Unexpected error in chat UI: %s", type(e).__name__)
-            st.error("An unexpected error occurred while processing your question. Please try again.")
+            user_msg = getattr(e, "user_message", None) or "An unexpected error occurred while processing your question. Please try again."
+            st.session_state["last_error"] = user_msg
+            st.session_state["last_failed_query"] = active_query
+            st.rerun()
 
 
 if __name__ == "__main__":

@@ -4,6 +4,7 @@ import logging
 from typing import Any, Dict, List
 import streamlit as st
 
+from src.config import MAX_QUESTIONS_PER_SESSION, MIN_SECONDS_BETWEEN_QUESTIONS
 from src.rag import ChatSession
 from src.vectorstore import VectorStore
 
@@ -20,7 +21,11 @@ def get_session() -> ChatSession:
     """Return or initialize the per-session ChatSession."""
     if "chat_session" not in st.session_state:
         store = get_store()
-        st.session_state.chat_session = ChatSession(store=store)
+        st.session_state.chat_session = ChatSession(
+            store=store,
+            cooldown_seconds=MIN_SECONDS_BETWEEN_QUESTIONS,
+            max_questions=MAX_QUESTIONS_PER_SESSION,
+        )
     return st.session_state.chat_session
 
 

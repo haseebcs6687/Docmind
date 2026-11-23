@@ -9,8 +9,9 @@ from src.logging_setup import configure_logging
 load_dotenv()
 configure_logging()
 
-# Optional model configurations (read from environment, no defaults guessed)
+# Model configurations (read from environment, no defaults guessed)
 GEMINI_MODEL: Optional[str] = os.getenv("GEMINI_MODEL", "").strip() or None
+GEMINI_FALLBACK_MODEL: Optional[str] = os.getenv("GEMINI_FALLBACK_MODEL", "").strip() or None
 GEMINI_EMBED_MODEL: Optional[str] = os.getenv("GEMINI_EMBED_MODEL", "").strip() or None
 
 # Maximum upload file size in megabytes (default 20 MB)
@@ -23,12 +24,21 @@ CHUNK_OVERLAP: int = int(os.getenv("CHUNK_OVERLAP", "150"))
 EMBED_BATCH_SIZE: int = int(os.getenv("EMBED_BATCH_SIZE", "20"))
 EMBED_BATCH_SLEEP_SECONDS: float = float(os.getenv("EMBED_BATCH_SLEEP_SECONDS", "1.0"))
 
-# RAG Pipeline and Generation settings
+# RAG Pipeline, Client Timeout and Retry Settings
+GEMINI_TIMEOUT_SECONDS: int = int(os.getenv("GEMINI_TIMEOUT_SECONDS", "25"))
 TOP_K: int = int(os.getenv("TOP_K", "5"))
 SCORE_THRESHOLD: float = float(os.getenv("SCORE_THRESHOLD", "0.65"))
 GEN_TEMPERATURE: float = float(os.getenv("GEN_TEMPERATURE", "0.1"))
-GEN_MAX_RETRIES: int = int(os.getenv("GEN_MAX_RETRIES", "5"))
+GEN_MAX_RETRIES: int = int(os.getenv("GEN_MAX_RETRIES", "3"))
+GEN_TOTAL_BUDGET_SECONDS: float = float(os.getenv("GEN_TOTAL_BUDGET_SECONDS", "40.0"))
 HISTORY_TURNS: int = int(os.getenv("HISTORY_TURNS", "4"))
+
+# Demo Quota and Session Limits
+MIN_SECONDS_BETWEEN_QUESTIONS: float = float(os.getenv("MIN_SECONDS_BETWEEN_QUESTIONS", "3.0"))
+MAX_QUESTIONS_PER_SESSION: int = int(os.getenv("MAX_QUESTIONS_PER_SESSION", "40"))
+ANSWER_CACHE_TTL_SECONDS: int = int(os.getenv("ANSWER_CACHE_TTL_SECONDS", "1800"))
+MAX_CHUNKS_PER_UPLOAD_BATCH: int = int(os.getenv("MAX_CHUNKS_PER_UPLOAD_BATCH", "300"))
+MAX_TOTAL_CHUNKS: int = int(os.getenv("MAX_TOTAL_CHUNKS", "1500"))
 
 
 def get_gemini_api_key() -> str:

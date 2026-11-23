@@ -1,8 +1,8 @@
 """Vector database management, Gemini embedding integration, and semantic retrieval."""
 
+import hashlib
 import logging
 import random
-import re
 import time
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
@@ -16,25 +16,18 @@ from src.config import (
     EMBED_BATCH_SIZE,
     EMBED_BATCH_SLEEP_SECONDS,
     GEMINI_EMBED_MODEL,
-    get_gemini_api_key,
+    GEN_MAX_RETRIES,
+)
+from src.gemini_client import (
+    EmbeddingError,
+    ErrorCategory,
+    _sanitize_error_message,
+    classify_error,
+    create_gemini_client,
 )
 from src.loaders import DocUnit
 
 logger = logging.getLogger(__name__)
-
-
-class EmbeddingError(Exception):
-    """Raised when text embedding fails after retries or due to API/network errors."""
-    pass
-
-
-def _sanitize_error_message(err: Exception) -> str:
-    """Sanitize error messages to ensure API keys and credentials are never exposed."""
-    msg = str(err)
-    # Mask common API key patterns (Google AIza keys or explicit key values)
-    msg = re.sub(r"AIza[0-9A-Za-z-_]{20,}", "[REDACTED_KEY]", msg)
-    msg = re.sub(r"(?:api[_-]?key|key)[\s=:'\"]+([0-9A-Za-z-_]+)", r"key=[REDACTED]", msg, flags=re.IGNORECASE)
-    return msg[:200]
 
 
 def embed_texts(
@@ -44,7 +37,7 @@ def embed_texts(
     client: Optional[Any] = None,
     batch_size: int = EMBED_BATCH_SIZE,
     sleep_seconds: float = EMBED_BATCH_SLEEP_SECONDS,
-    max_retries: int = 5,
+    max_retries: int = GEN_MAX_RETRIES,
 ) -> List[List[float]]:
     """Embed a list of text strings using the official Gemini google-genai SDK.
 
@@ -55,7 +48,7 @@ def embed_texts(
         client: Optional pre-configured genai.Client instance.
         batch_size: Maximum texts per API call to conserve rate limits.
         sleep_seconds: Throttling pause between batches.
-        max_retries: Number of retries on 429, 5xx, or network errors with exponential backoff.
+        max_retries: Number of retries on transient errors with exponential backoff.
 
     Returns:
         List of embedding vectors (list of floats).
@@ -70,11 +63,10 @@ def embed_texts(
 
     if client is None:
         try:
-            from google import genai
-            api_key = get_gemini_api_key()
-            client = genai.Client(api_key=api_key)
+            client = create_gemini_client()
         except Exception as e:
-            raise EmbeddingError(f"Failed to initialize Gemini client for embeddings: {_sanitize_error_message(e)}")
+            cat = classify_error(e)
+            raise EmbeddingError(cat, f"Failed to initialize Gemini client for embeddings: {e}")
 
     from google.genai import types
 
@@ -84,7 +76,7 @@ def embed_texts(
     for i in range(0, len(texts), batch_size):
         batch = texts[i : i + batch_size]
         retries = 0
-        backoff_delay = 2.0
+        backoff_delay = 1.0
 
         while True:
             try:
@@ -98,34 +90,47 @@ def embed_texts(
                         if hasattr(emb, "values") and emb.values is not None:
                             all_embeddings.append(list(emb.values))
                         else:
-                            raise EmbeddingError("Received malformed embedding object with missing vector values.")
+                            raise EmbeddingError(
+                                ErrorCategory.UNKNOWN,
+                                "Received malformed embedding object with missing vector values."
+                            )
                 else:
-                    raise EmbeddingError("Received empty response from Gemini embedding API.")
+                    raise EmbeddingError(
+                        ErrorCategory.UNKNOWN,
+                        "Received empty response from Gemini embedding API."
+                    )
                 break
             except Exception as e:
-                err_str = str(e)
-                status_code = getattr(e, "code", None) or getattr(e, "status_code", None)
-                is_rate_limit = status_code == 429 or "429" in err_str or "RESOURCE_EXHAUSTED" in err_str
-                is_server_error = (status_code and status_code >= 500) or "503" in err_str or "500" in err_str
-                is_network = "ConnectError" in err_str or "Timeout" in err_str or "Network" in err_str
+                cat = classify_error(e)
 
-                if (is_rate_limit or is_server_error or is_network) and retries < max_retries:
+                # Never retry daily quota or auth or bad request
+                if cat in (ErrorCategory.QUOTA_DAILY, ErrorCategory.AUTH, ErrorCategory.BAD_REQUEST, ErrorCategory.MODEL_UNAVAILABLE):
+                    raise EmbeddingError(cat, str(e), original_error=e)
+
+                is_retryable = cat in (
+                    ErrorCategory.RATE_LIMIT_MINUTE,
+                    ErrorCategory.SERVER_BUSY,
+                    ErrorCategory.TIMEOUT,
+                    ErrorCategory.NETWORK,
+                )
+
+                if is_retryable and retries < max_retries:
                     retries += 1
                     jitter = random.uniform(0.1, 0.5)
                     wait_time = backoff_delay + jitter
                     logger.warning(
-                        "Embedding API transient error (attempt %d/%d). Retrying in %.2fs.",
+                        "[Retry] attempt %d/%d, wait %.2fs, error %s",
                         retries,
                         max_retries,
                         wait_time,
+                        type(e).__name__,
                     )
                     time.sleep(wait_time)
-                    backoff_delay *= 2
+                    backoff_delay *= 2.0
                 else:
-                    sanitized_err = _sanitize_error_message(e)
-                    raise EmbeddingError(
-                        f"Gemini embedding API failed after {retries} retries for model '{embed_model}': {sanitized_err}"
-                    )
+                    sanitized = _sanitize_error_message(e)
+                    err_msg = f"Gemini embedding API failed after {retries} retries: {sanitized}"
+                    raise EmbeddingError(cat, err_msg, original_error=e)
 
         # Throttling between successive batches
         if i + batch_size < len(texts) and sleep_seconds > 0:
@@ -190,6 +195,21 @@ class VectorStore:
             sources_map[src]["chunk_count"] += 1
 
         return sorted(sources_map.values(), key=lambda s: s["name"].lower())
+
+    def get_fingerprint(self) -> str:
+        """Generate a SHA-256 fingerprint of the current vector store state to invalidate caches."""
+        cnt = self.count()
+        if cnt == 0:
+            return "empty"
+        data = self.collection.get(include=["metadatas"])
+        hash_entries = []
+        for meta in data.get("metadatas", []):
+            src = meta.get("source", "")
+            fhash = meta.get("file_hash", "")
+            hash_entries.append(f"{src}:{fhash}")
+        hash_entries.sort()
+        summary = f"{cnt}|" + ";".join(hash_entries)
+        return hashlib.sha256(summary.encode("utf-8")).hexdigest()[:16]
 
     def index_units(
         self,

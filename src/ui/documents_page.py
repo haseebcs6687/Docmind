@@ -6,7 +6,9 @@ from pathlib import Path
 from typing import Any, Dict
 import streamlit as st
 
-from src.config import MAX_UPLOAD_MB
+from src.chunking import chunk_units
+from src.config import MAX_CHUNKS_PER_UPLOAD_BATCH, MAX_TOTAL_CHUNKS, MAX_UPLOAD_MB
+from src.gemini_client import ErrorCategory, classify_error
 from src.loaders import load_directory, load_file
 from src.ui.components import (
     demo_callout_card,
@@ -100,7 +102,10 @@ def render_documents_page() -> None:
     # Upload Section (White rounded card)
     with st.container(border=True):
         st.subheader("Upload Documents")
-        st.write(f"Upload PDF, DOCX, or TXT documents (up to {MAX_UPLOAD_MB} MB each, maximum 10 files per batch).")
+        st.write(
+            f"Upload PDF, DOCX, or TXT documents (up to {MAX_UPLOAD_MB} MB each, maximum 10 files, "
+            f"limit {MAX_CHUNKS_PER_UPLOAD_BATCH} chunks per batch, {MAX_TOTAL_CHUNKS} total chunks in store)."
+        )
 
         uploaded_files = st.file_uploader(
             "Choose files to upload",
@@ -114,11 +119,13 @@ def render_documents_page() -> None:
                 st.error("Maximum 10 files allowed per upload batch. Please remove some files.")
             else:
                 if st.button("Index uploaded documents", type="primary", key="index_uploaded_btn"):
-                    with st.status("Indexing uploaded documents...", expanded=True) as status_box:
-                        total_chunks = 0
-                        indexed_count = 0
+                    with st.status("Validating and indexing uploaded documents...", expanded=True) as status_box:
                         max_bytes = MAX_UPLOAD_MB * 1024 * 1024
+                        parsed_batch = []
+                        total_estimated_chunks = 0
+                        validation_failed = False
 
+                        # Pre-chunk in memory to estimate chunks before any embedding call
                         for uf in uploaded_files:
                             filename = uf.name
                             file_bytes = uf.getvalue()
@@ -131,28 +138,63 @@ def render_documents_page() -> None:
                                 if not units:
                                     st.write(f"⚠️ `{filename}`: No readable text extracted. Skipped.")
                                     continue
+                                chunks = chunk_units(units)
+                                parsed_batch.append((filename, file_bytes, units, len(chunks)))
+                                total_estimated_chunks += len(chunks)
+                            except Exception as e:
+                                logger.error("Failed parsing file '%s': %s", filename, type(e).__name__)
+                                st.write(f"❌ `{filename}`: Failed to parse file ({type(e).__name__}). Skipped.")
 
-                                f_hash = hashlib.sha256(file_bytes).hexdigest()
-                                rep = store.index_units(units, {filename: f_hash})
+                        if total_estimated_chunks > MAX_CHUNKS_PER_UPLOAD_BATCH:
+                            st.error(
+                                f"Upload batch exceeds the maximum limit of {MAX_CHUNKS_PER_UPLOAD_BATCH} chunks "
+                                f"(estimated: {total_estimated_chunks} chunks). Please upload fewer or smaller documents."
+                            )
+                            validation_failed = True
+                        elif store.count() + total_estimated_chunks > MAX_TOTAL_CHUNKS:
+                            st.error(
+                                f"Indexing these documents would exceed the maximum database limit of {MAX_TOTAL_CHUNKS} total chunks "
+                                f"(current: {store.count()}, estimated new: {total_estimated_chunks}). Please remove documents before uploading."
+                            )
+                            validation_failed = True
 
-                                if rep["indexed_files"]:
-                                    chunks_added = rep["total_chunks_added"]
-                                    total_chunks += chunks_added
-                                    indexed_count += 1
-                                    st.write(f"✅ `{filename}`: Indexed successfully ({chunks_added} chunks).")
-                                elif rep["skipped_files"]:
-                                    st.write(f"ℹ️ `{filename}`: Already indexed (unchanged).")
+                        if validation_failed:
+                            status_box.update(label="Upload aborted: limits exceeded.", state="error", expanded=True)
+                        else:
+                            total_chunks = 0
+                            indexed_count = 0
+                            quota_exhausted = False
 
-                            except Exception as exc:
-                                logger.error("Failed indexing file '%s': %s", filename, type(exc).__name__)
-                                st.write(f"❌ `{filename}`: Failed to process ({type(exc).__name__}). Skipped.")
+                            for filename, file_bytes, units, _ in parsed_batch:
+                                try:
+                                    f_hash = hashlib.sha256(file_bytes).hexdigest()
+                                    rep = store.index_units(units, {filename: f_hash})
 
-                        status_box.update(
-                            label=f"Completed: Indexed {indexed_count} file(s) ({total_chunks} chunks).",
-                            state="complete",
-                            expanded=False,
-                        )
-                        st.rerun()
+                                    if rep["indexed_files"]:
+                                        chunks_added = rep["total_chunks_added"]
+                                        total_chunks += chunks_added
+                                        indexed_count += 1
+                                        st.write(f"✅ `{filename}`: Indexed successfully ({chunks_added} chunks).")
+                                    elif rep["skipped_files"]:
+                                        st.write(f"ℹ️ `{filename}`: Already indexed (unchanged).")
+
+                                except Exception as exc:
+                                    cat = classify_error(exc)
+                                    logger.error("Failed indexing file '%s': %s (%s)", filename, type(exc).__name__, cat)
+                                    if cat in (ErrorCategory.QUOTA_DAILY, ErrorCategory.RATE_LIMIT_MINUTE):
+                                        st.error("Embedding quota reached; the remaining files were not indexed.")
+                                        quota_exhausted = True
+                                        break
+                                    else:
+                                        st.write(f"❌ `{filename}`: Failed to process ({type(exc).__name__}). Skipped.")
+
+                            final_state = "error" if quota_exhausted else "complete"
+                            status_box.update(
+                                label=f"Completed: Indexed {indexed_count} file(s) ({total_chunks} chunks).",
+                                state=final_state,
+                                expanded=False,
+                            )
+                            st.rerun()
 
     # Indexed Documents Section (White rounded card with clean table list)
     with st.container(border=True):
