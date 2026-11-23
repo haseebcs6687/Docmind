@@ -21,6 +21,12 @@ CHUNK_OVERLAP: int = int(os.getenv("CHUNK_OVERLAP", "150"))
 EMBED_BATCH_SIZE: int = int(os.getenv("EMBED_BATCH_SIZE", "20"))
 EMBED_BATCH_SLEEP_SECONDS: float = float(os.getenv("EMBED_BATCH_SLEEP_SECONDS", "1.0"))
 
+# RAG Pipeline and Generation settings
+TOP_K: int = int(os.getenv("TOP_K", "5"))
+SCORE_THRESHOLD: float = float(os.getenv("SCORE_THRESHOLD", "0.65"))
+GEN_TEMPERATURE: float = float(os.getenv("GEN_TEMPERATURE", "0.1"))
+GEN_MAX_RETRIES: int = int(os.getenv("GEN_MAX_RETRIES", "5"))
+
 
 def get_gemini_api_key() -> str:
     """Retrieve the Gemini API key from environment variables.

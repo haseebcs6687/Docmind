@@ -2,6 +2,7 @@
 
 import logging
 import random
+import re
 import time
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
@@ -25,6 +26,15 @@ logger = logging.getLogger(__name__)
 class EmbeddingError(Exception):
     """Raised when text embedding fails after retries or due to API/network errors."""
     pass
+
+
+def _sanitize_error_message(err: Exception) -> str:
+    """Sanitize error messages to ensure API keys and credentials are never exposed."""
+    msg = str(err)
+    # Mask common API key patterns (Google AIza keys or explicit key values)
+    msg = re.sub(r"AIza[0-9A-Za-z-_]{20,}", "[REDACTED_KEY]", msg)
+    msg = re.sub(r"(?:api[_-]?key|key)[\s=:'\"]+([0-9A-Za-z-_]+)", r"key=[REDACTED]", msg, flags=re.IGNORECASE)
+    return msg[:200]
 
 
 def embed_texts(
@@ -64,7 +74,7 @@ def embed_texts(
             api_key = get_gemini_api_key()
             client = genai.Client(api_key=api_key)
         except Exception as e:
-            raise EmbeddingError(f"Failed to initialize Gemini client for embeddings: {e}")
+            raise EmbeddingError(f"Failed to initialize Gemini client for embeddings: {_sanitize_error_message(e)}")
 
     from google.genai import types
 
@@ -104,17 +114,17 @@ def embed_texts(
                     jitter = random.uniform(0.1, 0.5)
                     wait_time = backoff_delay + jitter
                     logger.warning(
-                        "Embedding API transient error (attempt %d/%d). Retrying in %.2fs. Error: %s",
+                        "Embedding API transient error (attempt %d/%d). Retrying in %.2fs.",
                         retries,
                         max_retries,
                         wait_time,
-                        err_str[:120],
                     )
                     time.sleep(wait_time)
                     backoff_delay *= 2
                 else:
+                    sanitized_err = _sanitize_error_message(e)
                     raise EmbeddingError(
-                        f"Gemini embedding API failed after {retries} retries for model '{embed_model}': {err_str[:200]}"
+                        f"Gemini embedding API failed after {retries} retries for model '{embed_model}': {sanitized_err}"
                     )
 
         # Throttling between successive batches
@@ -158,11 +168,7 @@ class VectorStore:
         )
 
     def delete_source(self, source_name: str) -> int:
-        """Delete all chunks originating from a specific source file.
-
-        Returns:
-            Number of chunks removed (approximate based on count difference).
-        """
+        """Delete all chunks originating from a specific source file."""
         before_count = self.count()
         self.collection.delete(where={"source": source_name})
         after_count = self.count()
@@ -191,16 +197,7 @@ class VectorStore:
         file_hash_by_source: Dict[str, str],
         embed_fn: Optional[Callable[[List[str], str], List[List[float]]]] = None,
     ) -> Dict[str, Any]:
-        """Index DocUnits into the vector store incrementally based on file hash.
-
-        Args:
-            units: List of DocUnits to index.
-            file_hash_by_source: Mapping of source filename to its content hash.
-            embed_fn: Optional custom embedding function for dependency injection / testing.
-
-        Returns:
-            Report detailing indexed files, skipped files, chunk counts, and embedding calls.
-        """
+        """Index DocUnits into the vector store incrementally based on file hash."""
         report: Dict[str, Any] = {
             "indexed_files": [],
             "skipped_files": [],
@@ -208,7 +205,6 @@ class VectorStore:
             "embedding_calls": 0,
         }
 
-        # Group units by source filename
         units_by_source: Dict[str, List[DocUnit]] = {}
         for u in units:
             units_by_source.setdefault(u.source, []).append(u)
@@ -216,19 +212,15 @@ class VectorStore:
         for source_name, src_units in units_by_source.items():
             current_hash = file_hash_by_source.get(source_name, "")
 
-            # Check if this source is already indexed in Chroma with identical hash
             existing = self.collection.get(where={"source": source_name}, limit=1, include=["metadatas"])
             if existing and existing["metadatas"]:
                 stored_hash = existing["metadatas"][0].get("file_hash", "")
                 if stored_hash == current_hash and current_hash:
-                    # Unchanged: skip re-indexing completely
                     report["skipped_files"].append(source_name)
                     continue
                 else:
-                    # Hash changed: delete existing chunks for this source
                     self.collection.delete(where={"source": source_name})
 
-        # Process sources requiring indexing
         sources_to_index = [s for s in units_by_source.keys() if s not in report["skipped_files"]]
         if not sources_to_index:
             return report
@@ -243,7 +235,6 @@ class VectorStore:
 
         texts_to_embed = [c.text for c in all_new_chunks]
 
-        # Generate embeddings
         if embed_fn is not None:
             embeddings = embed_fn(texts_to_embed, "RETRIEVAL_DOCUMENT")
             report["embedding_calls"] += 1
@@ -251,7 +242,6 @@ class VectorStore:
             embeddings = embed_texts(texts_to_embed, task_type="RETRIEVAL_DOCUMENT")
             report["embedding_calls"] += (len(texts_to_embed) + EMBED_BATCH_SIZE - 1) // EMBED_BATCH_SIZE
 
-        # Prepare payload for Chroma
         ids: List[str] = []
         documents: List[str] = []
         metadatas: List[Dict[str, Any]] = []
@@ -269,7 +259,6 @@ class VectorStore:
                 "file_hash": file_hash_by_source.get(c.source, ""),
             })
 
-        # Add to Chroma collection in batches to stay within Chroma max batch limits
         chroma_batch_size = 100
         for b_start in range(0, len(ids), chroma_batch_size):
             b_end = b_start + chroma_batch_size
@@ -296,20 +285,10 @@ class VectorStore:
             Chroma uses cosine distance where distance = 1 - cosine_similarity.
             We convert this to a normalized similarity score:
                 similarity = max(0.0, min(1.0, 1.0 - distance))
-            A score of 1.0 indicates an identical vector direction, and 0.0 indicates orthogonal/unrelated.
-
-        Args:
-            question: Search query string.
-            k: Number of nearest neighbors to retrieve.
-            embed_fn: Optional custom embedding function for testing.
-
-        Returns:
-            List of matching chunk dictionaries: text, citation, source, page, section, score.
         """
         if self.count() == 0 or not question.strip():
             return []
 
-        # Generate query embedding
         if embed_fn is not None:
             q_embeds = embed_fn([question.strip()], "RETRIEVAL_QUERY")
         else:
@@ -333,7 +312,6 @@ class VectorStore:
         distances = results.get("distances", [[]])[0]
 
         for doc_text, meta, dist in zip(docs, metas, distances):
-            # Convert cosine distance (0 to 2) to similarity score (0.0 to 1.0)
             score = round(max(0.0, min(1.0, 1.0 - float(dist))), 4)
             page_val = meta.get("page")
             page_clean = int(page_val) if page_val and page_val > 0 else None
