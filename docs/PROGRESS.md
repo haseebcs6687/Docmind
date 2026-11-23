@@ -278,3 +278,67 @@
   - `tests/test_rag.py`
   - `scripts/chat_demo.py`
   - `docs/PROGRESS.md`
+
+## Step 8: Streamlit Web UI (Chat & Document Management)
+- **What was built**:
+  - Researched and verified current Streamlit stable APIs and options for Streamlit 1.67.0 on Python 3.13 Windows.
+  - Installed and pinned `streamlit==1.67.0` in `requirements.txt`.
+  - Configured custom visual theme in `.streamlit/config.toml` (git-tracked):
+    - Light app area with primary indigo accent `#4F46E5`, `#F9FAFB` background, and sans-serif font.
+    - Dark near-black sidebar `#111827` using the new Streamlit `[theme.sidebar]` configuration table.
+    - Telemetry collection disabled (`browser.gatherUsageStats = false`).
+  - Implemented `src/ui/state.py`:
+    - Cached ChromaDB `VectorStore` using `@st.cache_resource` for shared multi-session efficiency.
+    - Isolated per-session `ChatSession` in `st.session_state.chat_session`.
+    - Initialized conversation messages in `st.session_state.messages` with clear/reset support.
+  - Implemented main application entrypoint `app.py`:
+    - Server-side logging initialization via `configure_logging()`.
+    - Page setup with `st.set_page_config(page_title="DocMind", page_icon="⚖️", layout="wide")`.
+    - Multi-page routing via `st.navigation` and `st.Page` for Chat (`src/ui/chat_page.py`) and Documents (`src/ui/documents_page.py`).
+    - Sidebar branding (`DocMind` title + tagline) and live status indicator (`N documents | M chunks`).
+  - Implemented `src/ui/chat_page.py`:
+    - Empty store guard: friendly empty-state notice with direct navigation link to Documents page, disabling chat input when store has 0 documents.
+    - Populated store:
+      - 4 suggested starter buttons ("What is the initial consultation fee?", "What happens if an invoice is paid late?", "How long are client files kept?", "How long does the conflict check take?") rendered when history is empty.
+      - Message history rendering via `st.chat_message`.
+      - Assistant responses display text answer and collapsible expander `Sources (N)` showing citation labels, relevance percentage chips (`int(score * 100)%`), and preview snippets.
+      - Subtle warning/info box display when `found=False` with zero hallucinated sources.
+      - Latency caption in seconds (`⏱️ Response time: X.XXs`).
+      - 500-character input validation on `st.chat_input` with friendly warning on overflow.
+      - "Clear conversation" button resetting session history.
+      - Error handling for `EmbeddingError`, `GenerationError`, and general exceptions with class-only server logging (zero stack trace or secret leakage in UI).
+  - Implemented `src/ui/documents_page.py`:
+    - Summary metrics row: indexed document count and total chunks in vector store.
+    - Required disclaimers: fictional demo environment notice and free Gemini API embedding quota reminder.
+    - "Load sample documents" button: indexes `data/sample_docs` using incremental SHA-256 hashes, reporting newly indexed files and embedding call count; dynamically disables when already loaded.
+    - Multi-file uploader for `.pdf`, `.docx`, and `.txt` files (max `MAX_UPLOAD_MB` each, max 10 files per batch) with `st.status` progress tracking per file without halting on individual file errors.
+    - Indexed documents table with document name, format badge, chunk count, and individual file deletion buttons.
+    - Danger zone with confirmation checkbox to delete all indexed documents and reset store.
+  - Implemented unit test suite in `tests/test_ui_smoke.py`:
+    - `test_empty_store_renders_empty_state`: verifies empty-state warning and absence of chat input.
+    - `test_populated_store_renders_starters_and_runs_chat`: verifies starter buttons, input processing, mock LLM execution, and citation rendering.
+    - `test_populated_store_starter_button_click`: verifies clicking a starter button triggers query execution.
+    - `test_documents_page_renders_metrics_and_sources`: verifies metrics, disclaimers, and indexed documents list on the Documents page.
+  - Headless execution verification: verified `python -m streamlit run app.py --server.headless true` starts cleanly with 0 errors.
+- **Python Version**: Python 3.13.15
+- **Files Touched**:
+  - `requirements.txt`
+  - `.streamlit/config.toml`
+  - `src/ui/__init__.py`
+  - `src/ui/state.py`
+  - `src/ui/chat_page.py`
+  - `src/ui/documents_page.py`
+  - `app.py`
+  - `tests/test_ui_smoke.py`
+  - `README.md`
+  - `docs/PROGRESS.md`
+- **How it was tested**:
+  - Ran `pytest tests/test_ui_smoke.py` (4/4 tests passed).
+  - Ran complete test suite `pytest` across all 42 tests in the project (42/42 passed).
+  - Verified headless server startup: `python -m streamlit run app.py --server.headless true` on port 8501.
+  - Checked git status to verify `.env` and `chroma_db/` remain untracked.
+- **Decisions Made**:
+  - Used Streamlit 1.67.0's native `[theme.sidebar]` TOML configuration table to achieve the requested dark sidebar and light main area without custom CSS injection.
+  - Passed callable functions to `st.Page` with `lambda: render_chat_page(...)` to enable safe intra-page links and clean dependency mocking in `AppTest` test runners.
+  - Cached `VectorStore` with `@st.cache_resource` so the persistent ChromaDB client is opened once per server process rather than per user interaction.
+
