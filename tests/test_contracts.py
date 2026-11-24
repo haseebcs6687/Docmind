@@ -73,7 +73,7 @@ def test_quote_verified_in_cited_unit():
 
     field = f_map["effective_date"]
     assert field.found is True
-    assert field.status == "Verified"
+    assert field.status == "Quote verified"
     assert field.citation == "Test_MSA.pdf, p. 1"
     assert field.value == "1 March 2026"
     assert analysis.verified_count >= 1
@@ -101,7 +101,7 @@ def test_quote_found_in_another_unit_corrected():
 
     field = f_map["term"]
     assert field.found is True
-    assert field.status == "Verified"
+    assert field.status == "Quote verified"
     assert field.citation == "Test_MSA.pdf, p. 2"  # Corrected to unit 2!
 
 
@@ -199,7 +199,7 @@ def test_invalid_unit_number_handled():
 
     field = f_map["governing_law"]
     assert field.found is True
-    assert field.status == "Verified"
+    assert field.status == "Quote verified"
     assert field.citation == "Test_MSA.pdf, p. 3"
 
 
@@ -353,7 +353,7 @@ def test_csv_formula_injection_protection_and_columns():
                 value="@SUM(A1:A10)",  # Formula injection attempt in value
                 citation="+Section 1",  # Formula injection attempt in citation
                 quote="-Quote test",  # Formula injection attempt in quote
-                status="Verified",
+                status="Quote verified",
             )
         ],
         total_fields=1,
@@ -410,7 +410,7 @@ def test_uploaded_file_analyzed_without_embedding_calls():
 
     analysis = analyze_contract(units, "Upload_Test.txt", "staff", llm=fake_llm, cache=ContractAnalysisCache())
     f_map = {f.key: f for f in analysis.fields}
-    assert f_map["parties"].status == "Verified"
+    assert f_map["parties"].status == "Quote verified"
 
 
 def test_apptest_navigation_role_switch():

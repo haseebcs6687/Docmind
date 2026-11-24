@@ -44,7 +44,7 @@ ANALYTICS_ENABLED: bool = os.getenv("ANALYTICS_ENABLED", "true").lower() in ("tr
 ANALYTICS_DB_PATH: str = os.getenv("ANALYTICS_DB_PATH", "data/analytics.db")
 ANALYTICS_RETENTION_DAYS: int = int(os.getenv("ANALYTICS_RETENTION_DAYS", "30"))
 ANALYTICS_MAX_EVENTS: int = int(os.getenv("ANALYTICS_MAX_EVENTS", "5000"))
-GAP_CLUSTER_COSINE: float = float(os.getenv("GAP_CLUSTER_COSINE", "0.80"))
+GAP_CLUSTER_COSINE: float = float(os.getenv("GAP_CLUSTER_COSINE", "0.62"))
 GAP_JACCARD: float = float(os.getenv("GAP_JACCARD", "0.5"))
 
 # Contract Analysis Configuration

@@ -27,5 +27,8 @@ Thumbs.db
 # Analytics database
 data/analytics.db*
 
+# Scratch directory
+scratch/
+
 # UI reference assets
 docs/ui-reference/

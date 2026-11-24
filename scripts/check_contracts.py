@@ -104,7 +104,7 @@ def evaluate_analysis(
             disp_val = "[Not stated in document]" if is_pass else f"UNEXPECTED: {f.value[:40]}"
         else:
             # Expected found with keywords
-            is_pass = f.found and (f.status == "Verified") and all(kw in norm_val for kw in expected_keywords)
+            is_pass = f.found and (f.status in ("Quote verified", "Verified")) and all(kw in norm_val for kw in expected_keywords)
             eval_label = "PASS" if is_pass else "FAIL"
             if is_pass:
                 passed_checks += 1
@@ -135,6 +135,8 @@ def main():
         sys.exit(1)
     print(f"Retrieved {len(msa_units)} units for {msa_name}.")
 
+    print("Pausing 10 seconds before analysis to ensure clear rate limits...", flush=True)
+    time.sleep(10)
     print(f"Calling Gemini to analyze {msa_name}...", flush=True)
     msa_analysis = analyze_contract(msa_units, msa_name, access_mode="staff")
     p1, t1, u1 = evaluate_analysis(msa_name, msa_analysis, MSA_ANSWER_KEY)
@@ -147,6 +149,8 @@ def main():
         sys.exit(1)
     print(f"Retrieved {len(lease_units)} units for {lease_name}.", flush=True)
 
+    print("Pausing 10 seconds between contract analyses to avoid backend rate limiting...", flush=True)
+    time.sleep(10)
     print(f"Calling Gemini to analyze {lease_name}...", flush=True)
     lease_analysis = analyze_contract(lease_units, lease_name, access_mode="staff")
     p2, t2, u2 = evaluate_analysis(lease_name, lease_analysis, LEASE_ANSWER_KEY)

@@ -22,11 +22,12 @@ def _render_results(analysis: ContractAnalysis) -> None:
     # 1. Stat Cards
     found_str = f"{analysis.found_count} / {analysis.total_fields}"
     c1 = stat_card(label="Fields Found", value=found_str, icon="📋", tone="blue")
-    c2 = stat_card(label="Verified", value=str(analysis.verified_count), icon="✓", tone="mint")
+    c2 = stat_card(label="Quote Verified", value=str(analysis.verified_count), icon="✓", tone="mint")
     c3 = stat_card(label="Not Stated", value=str(analysis.not_stated_count), icon="—", tone="peach")
     c4 = stat_card(label="Unverified", value=str(analysis.unverified_count), icon="⚠️", tone="pink")
 
     st.markdown(stat_cards_grid([c1, c2, c3, c4]), unsafe_allow_html=True)
+    st.caption("Quote found verbatim in the source; confirm the value is right.")
     st.markdown("<div style='margin-top: 1.25rem;'></div>", unsafe_allow_html=True)
 
     # 2. Table Header
@@ -38,11 +39,11 @@ def _render_results(analysis: ContractAnalysis) -> None:
         safe_cit = html.escape(f.citation)
 
         # Status badge styling
-        if f.status == "Verified":
+        if f.status in ("Quote verified", "Verified"):
             status_badge = (
                 '<span style="background-color: #DCFCE7; color: #166534; border: 1px solid #BBF7D0; '
                 'padding: 3px 10px; border-radius: 9999px; font-size: 0.75rem; font-weight: 600; '
-                'display: inline-block;">Verified</span>'
+                'display: inline-block;">Quote verified</span>'
             )
             row_style = ""
         elif f.status == "Not stated":

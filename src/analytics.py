@@ -408,7 +408,8 @@ class AnalyticsStore:
         answer_rate = (answered_queries / total_queries * 100.0) if total_queries > 0 else 0.0
         cached_count = sum(1 for r in rows if r["cached"])
         cache_hit_rate = (cached_count / total_queries * 100.0) if total_queries > 0 else 0.0
-        avg_latency_ms = (sum(r["latency_ms"] for r in rows) / total_queries) if total_queries > 0 else 0.0
+        non_cached_rows = [r for r in rows if not r["cached"]]
+        avg_latency_ms = (sum(r["latency_ms"] for r in non_cached_rows) / len(non_cached_rows)) if non_cached_rows else 0.0
         has_synthetic = any(bool(r["synthetic"]) for r in rows)
 
         # Zero-filled daily series
@@ -704,7 +705,7 @@ class AnalyticsStore:
 
                 session_id = f"demo-sess-{day_date.strftime('%Y%m%d')}-{rng.randint(100, 999)}"
                 cached = (rng.random() < 0.15)
-                latency = 0.0 if cached else round(rng.uniform(750.0, 3200.0), 1)
+                latency = 0.0 if cached else round(rng.uniform(1500.0, 6000.0), 1)
 
                 events_to_insert.append({
                     "ts_utc": ts,

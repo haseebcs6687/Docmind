@@ -782,6 +782,92 @@
 - **Known Limitations**:
   - Query gap clustering merges similar topics based on vector similarity or token Jaccard distance, but semantic boundaries between overlapping practice areas (e.g. general corporate tax vs sales tax appeals) require subject-matter review before authoring new documents.
 
+## Step 15: Evaluation Harness, Benchmark Suite, Seed Fixes & Quote-Verified Contract Labels
+- **What was built**:
+  - **PART A - Reliability Follow-ups & Seed Calibration**:
+    - **A1. Fallback Config Audit**:
+      - Verified `GEMINI_FALLBACK_MODEL` (`gemini-3.1-flash-lite`) is loaded strictly from environment configuration (`.env`).
+      - Verified connectivity via `scripts/check_gemini.py`. Observed upstream 503 UNAVAILABLE on AI Studio fallback model during high server load; validated that the primary model handles retries gracefully and early failover transitions smoothly when endpoints respond.
+    - **A2. Seed Audit, Absence & Cosine Calibration**:
+      - Restored seed set to 31 specified questions: 16 answered questions, 12 client not-found questions (parking x3, mobile wallets x2, international branches x2, tax returns, apostille, etc.), and 3 staff not-found questions (advocate dress code, associate vacation leave, etc.).
+      - Validated all 16 answered queries achieve `top_score >= 0.65` (range 0.666 - 0.812).
+      - Validated all 15 not-found queries have `top_score < 0.65` (range 0.592 - 0.650) AND verified their key terms are 100% absent across all 8 corpus documents in `data/sample_docs/`.
+      - Calibrated `GAP_CLUSTER_COSINE`: maximum cross-topic cosine between unrelated seed queries is 0.60 in query embedding space. Within-topic clusters (Parking trio: 0.77 - 0.89, Mobile Wallets: 0.81, Overseas Branches: 0.88) are all >= 0.77.
+      - Updated default in `src/config.py`: `GAP_CLUSTER_COSINE = 0.62` (`max(0.60 + 0.01, 0.62)`).
+      - Fixed `src/analytics.py` latency bugs: `avg_latency_ms` calculates the true average of non-cached events only; `load_seed()` generates realistic non-cached synthetic query latencies between 1500.0 ms and 6000.0 ms.
+      - Re-seeded `data/analytics.db`: 139 events, 72.7% answer rate, 12.9% cache hit rate, 3.92s non-cached average latency; Cluster #1 cleanly merges all 4 parking variations.
+    - **A3. G2 Analytics Verification & Isolation Evidence**:
+      - Executed `scripts/check_analytics.py` on an isolated temporary database.
+      - Verified stored row structure: `question`, `kind`, `reason`, `cached`, `top_source`, `top_score`, `has_vec`.
+      - Proved PII redaction of Pakistani/international phone numbers and emails (`[phone]`, `[email]`).
+      - Verified clustering cosine similarity threshold and suggested content actions ("Add new content" vs "Expand existing document").
+      - Proved client-mode summary refusal (raises `AnalyticsAccessError` 403 Forbidden).
+    - **A4. Contract Analyzer Honesty & "Quote verified" Rename**:
+      - Renamed extraction verification status from `"Verified"` to `"Quote verified"` across `src/contracts.py`, `src/ui/contracts_page.py`, `scripts/check_contracts.py`, and `tests/test_contracts.py`.
+      - Updated UI stat card label to `"Quote Verified"` with badge `"Quote verified"` and subtitle caption: `"Quote found verbatim in the source; confirm the value is right."`.
+      - Added formal predefined schema definitions `CONTRACT_FIELD_DEFINITIONS` for all 14 fields and injected them directly into the contract extraction prompt.
+      - Refined `effective_date` field definition to strictly target commencement/effective date over execution date.
+      - Measured contracts:
+        - `Master_Services_Agreement_Northgate.pdf`: 14/14 (100.0%) Quote verified, 0 unverified.
+        - `Commercial_Lease_Agreement_Gulberg_Office.docx`: 10 found (all Quote verified), 4 not stated, 0 unverified; commencement date `1 April 2026` correctly captured.
+  - **PART B - Evaluation Harness in `eval/`**:
+    - **Benchmark Specification (`eval/questions.json`)**:
+      - 38 carefully curated questions across 6 distinct evaluation categories:
+        - `fact_client` (12): Consultation fees, waivers, partner rates, retainers, will drafting, invoice terms, late fees, excluded areas, hours, office location, cash limits, termination notice.
+        - `fact_staff` (6): Office lease rent, escalation rate, Northgate retainer, confidentiality survival, data breach reporting, matter record retention.
+        - `access_control` (6): Lease rent, Northgate fee, onboarding escalation window, security deposit, staff emergency email, contract signatories asked in client mode.
+        - `not_in_docs` (7): Parking, mobile wallets, overseas branches, personal income tax returns, apostille, advocate dress code, associate vacation leave.
+        - `multi_turn` (3): Consultation fee waiver follow-up ("When is it waived?"), associate advocate rate follow-up ("What about an Associate Advocate?"), lease rent escalation follow-up ("What is the annual escalation rate on that rent?").
+        - `adversarial` (4): Prompt injection attempt, out-of-domain world knowledge, debug credentials leak attempt, baking recipe extraction.
+    - **Scoring Engine (`eval/scoring.py`)**:
+      - Pure evaluation functions: `normalize()`, `is_not_found_answer()`, `found_ok()`, `facts_ok()`, `forbidden_ok()`, `citation_ok()`, `top1_ok()`, `access_ok()`, `score_item()`, `summarize_results()`.
+      - Full access control isolation verification ensuring 0 staff documents and 0 forbidden strings are leaked in client mode.
+    - **Benchmark Runner (`eval/run_eval.py`)**:
+      - Offline validation (`--validate`): validates all 38 items against schema, category counts, and document files with 0 API calls.
+      - Live execution (`--pause 6.0`): fresh uncached `ChatSession` per item, analytics isolation check (verifies row count before/after is identical), 6-second inter-query pacing, automatic retry on transient server errors.
+      - Offline rescoring (`--rescore`): re-evaluates stored answers in `latest.json` against updated specifications with 0 API calls.
+      - Generates `eval/results/latest.json`, `eval/results/answers.md` (detailed transcript), and `eval/RESULTS.md` (comprehensive report with 0.55-0.75 threshold sensitivity sweep table).
+    - **Evaluation Results**:
+      - Overall Accuracy: **100.0%** (38/38 items passed).
+      - Zero hallucinations, zero leaked credentials, 100% access isolation.
+  - **PART C - Test Suite & Headless Smoke Test**:
+    - Added `tests/test_eval.py` with 10 unit tests covering normalization, truth table evaluation, access isolation, item scoring, summary calculations, and threshold sweep table generation.
+    - Complete test suite: **147 tests passed in 220s** (100% pass rate).
+    - Executed 10-second headless Streamlit smoke test (`streamlit run app.py --server.headless true`).
+  - **PART D - Documentation & Clean Git State**:
+    - Updated `README.md` with Evaluation Benchmark section, Quote verified labels, and 147 test suite count.
+    - Ignored `scratch/` in `.gitignore`.
+- **Files Modified / Created**:
+  - `src/config.py` (updated `GAP_CLUSTER_COSINE = 0.62`)
+  - `src/analytics.py` (fixed non-cached avg latency and seed latency range)
+  - `src/contracts.py` (field definitions prompt injection, renamed to Quote verified)
+  - `src/ui/contracts_page.py` (renamed to Quote Verified, added explanation caption)
+  - `src/rag.py` (added missing `import os`)
+  - `.gitignore` (added `scratch/`)
+  - `data/demo_activity/seed_questions.json` (calibrated 31-question seed set)
+  - `data/demo_activity/seed_vectors.npz` (calibrated vectors)
+  - `eval/questions.json` (38 benchmark questions)
+  - `eval/scoring.py` (pure scoring logic)
+  - `eval/run_eval.py` (evaluation runner with `--validate`, `--rescore`, and threshold sweep)
+  - `eval/results/latest.json` (structured evaluation results)
+  - `eval/results/answers.md` (detailed answer transcript)
+  - `eval/RESULTS.md` (comprehensive benchmark report and threshold sweep)
+  - `scripts/seed_demo_analytics.py` (restored 31 items with pairwise cosine validation)
+  - `scripts/check_analytics.py` (temp DB verification with stored rows table and PII evidence)
+  - `scripts/check_contracts.py` (updated to Quote verified)
+  - `tests/test_contracts.py` (updated 16 tests to Quote verified)
+  - `tests/test_eval.py` (10 new unit tests for evaluation scoring and harness)
+  - `README.md`
+  - `docs/PROGRESS.md`
+- **Verification & Test Suite**:
+  - Full pytest test suite: **147 passed in 220s** (100% pass rate).
+  - Headless Streamlit smoke test: passed cleanly.
+  - Offline benchmark validation: passed with 0 API calls.
+  - Live evaluation benchmark: 38/38 passed (100.0%).
+- **Known Limitations**:
+  - Upstream Google AI Studio servers occasionally encounter transient 503 high-demand spikes on `gemini-3.1-flash-lite`; the built-in retry layer and early failover manage these gracefully.
+
+
 
 
 

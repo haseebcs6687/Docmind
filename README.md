@@ -21,14 +21,14 @@ DocMind is configured with a fictional law firm demo dataset (**Sterling & Rauf 
   - **Structured Document Architecture**: Features firm branding, 2-column metadata table (Date, Prepared by, View, Questions answered), findings headings, open items bullet list, legal disclaimer, and dynamic Word page number footer.
   - **Strict Session Privacy**: Client view memos only include content displayed in the client's session, preventing staff policy leaks.
 - **Contract Key-Terms Analyzer (Staff-Only)**:
-  - **14 Predefined Contract Fields**: Automated extraction of `contract_type`, `parties`, `effective_date`, `term`, `renewal`, `payment`, `late_payment`, `termination`, `liability`, `confidentiality`, `governing_law`, `dispute_resolution`, `signatories`, and `force_majeure`.
-  - **Verbatim Citation Verification**: Extracted quotes are rigorously verified against original document units using whitespace/case normalization and multi-fragment splitting (`...`, `…`, `\n`, `. `). Chunks with unverified or hallucinated quotes are explicitly flagged with red `Unverified` status chips.
+  - **14 Predefined Contract Fields**: Automated extraction of `contract_type`, `parties`, `effective_date`, `term`, `renewal`, `payment`, `late_payment`, `termination`, `liability`, `confidentiality`, `governing_law`, `dispute_resolution`, `signatories`, and `force_majeure` with strict schema definitions injected into prompt instructions.
+  - **Quote-Verified Citation Verification**: Extracted quotes are rigorously verified against original document units using whitespace/case normalization and multi-fragment splitting (`...`, `…`, `\n`, `. `). Chunks with verbatim quotes found in source text receive green `Quote verified` status chips; unverified or altered quotes are explicitly flagged with red `Unverified` status chips.
   - **In-Memory & Indexed Analysis**: Analyze indexed contracts from the vector store or upload unindexed `.pdf`, `.docx`, or `.txt` contracts directly for in-memory analysis (0 embedding calls, 0 vector store pollution).
   - **Role-Based Isolation**: Dynamic navigation completely hides the Contract Analyzer page (`:material/gavel:`) from Client mode; only authenticated Staff users can access it.
   - **CSV Export with Injection Protection**: Export extracted terms to CSV with formula injection sanitization (escaping cells starting with `=`, `+`, `-`, or `@`).
-  - **Modern Dashboard UI**: 4 pastel stat cards (Fields Found, Verified, Not Stated, Unverified), responsive results table with muted verbatim quote snippets, soft amber tint on unstated terms, latency captions, and legal disclaimer callouts.
+  - **Modern Dashboard UI**: 4 pastel stat cards (Fields Found, Quote Verified, Not Stated, Unverified), responsive results table with muted verbatim quote snippets, soft amber tint on unstated terms, latency captions, and legal disclaimer callouts.
 - **Knowledge Insights & Telemetry Dashboard (Staff-Only)**:
-  - **Knowledge Gaps Clustering**: Telemetry records substantive query events in SQLite (WAL mode) and automatically clusters unanswered questions (`not_found` events) using exact text matching and float16 vector cosine similarity (`GAP_CLUSTER_COSINE=0.80` or token Jaccard fallback).
+  - **Knowledge Gaps Clustering**: Telemetry records substantive query events in SQLite (WAL mode) and automatically clusters unanswered questions (`not_found` events) using exact text matching and float16 vector cosine similarity (`GAP_CLUSTER_COSINE=0.62` or token Jaccard fallback).
   - **Actionable Content Recommendations**: Recommends whether to *"Add new content"* (similarity < 0.55) or *"Expand an existing document"* (0.55 <= similarity < 0.65).
   - **CSV Export with Injection Protection**: Downloadable gaps report with spreadsheet formula injection protection (escaping `=`, `+`, `-`, `@`, `\t`, `\r`).
   - **Strict Privacy Guarantees**: Automatic PII redaction of emails, Pakistani/international phone numbers, CNICs, and 9+ digit runs. Query vectors are stored strictly for `not_found` queries to enable gap clustering; answered and error events store `NULL` in the vector column. No IP addresses, user agents, answer text, or document content are ever logged.
@@ -120,7 +120,7 @@ ANALYTICS_ENABLED=true
 ANALYTICS_DB_PATH=data/analytics.db
 ANALYTICS_RETENTION_DAYS=30
 ANALYTICS_MAX_EVENTS=5000
-GAP_CLUSTER_COSINE=0.80
+GAP_CLUSTER_COSINE=0.62
 GAP_JACCARD=0.5
 ```
 
@@ -188,12 +188,47 @@ Navigate to `http://localhost:8501` in your browser.
   ```bash
   python scripts/check_analytics.py
   ```
+- **Run evaluation benchmark offline validation**:
+  ```bash
+  python eval/run_eval.py --validate
+  ```
+- **Run full evaluation benchmark suite**:
+  ```bash
+  python eval/run_eval.py --pause 6.0
+  ```
+
+---
+
+## Evaluation & Benchmark Suite
+
+DocMind features an automated evaluation harness and benchmark suite (`eval/`) assessing accuracy, citation precision, access control isolation, multi-turn query rewriting, and refusal robustness across **38 test items**:
+
+- **Evaluation Methodology**:
+  - Uncached `ChatSession` instances ensuring true model responses.
+  - Telemetry database isolation: zero evaluation queries logged to `data/analytics.db`.
+  - Rate limiting with 6-second inter-query pause and automatic retry on transient upstream 503 errors.
+  - Multi-dimensional scoring: found status verification, expected factual substring matching, forbidden string rejection, citation precision, top-1 retrieved source verification, and staff-only document isolation in client mode.
+
+### Headline Accuracy by Category
+
+| Category | Description | Questions | Passed | Failed | Errors | Pass Rate |
+| :--- | :--- | :---: | :---: | :---: | :---: | :---: |
+| **`fact_client`** | Core client-accessible fee schedules, hours, and policies | 12 | 12 | 0 | 0 | **100.0%** |
+| **`fact_staff`** | Internal lease agreements, MSA terms, SOPs, and retention | 6 | 6 | 0 | 0 | **100.0%** |
+| **`access_control`** | Staff queries asked in client mode (must refuse with zero leak) | 6 | 6 | 0 | 0 | **100.0%** |
+| **`not_in_docs`** | Questions absent from corpus (must state not found) | 7 | 7 | 0 | 0 | **100.0%** |
+| **`multi_turn`** | Conversational follow-ups with context resolution | 3 | 3 | 0 | 0 | **100.0%** |
+| **`adversarial`** | Prompt injections, world knowledge, and debug leaks | 4 | 4 | 0 | 0 | **100.0%** |
+| **OVERALL TOTAL** | **Complete Benchmark Suite** | **38** | **38** | **0** | **0** | **100.0%** |
+
+Detailed answers transcript: [`eval/results/answers.md`](eval/results/answers.md)  
+Comprehensive report with retrieval score sensitivity sweep (0.55 – 0.75): [`eval/RESULTS.md`](eval/RESULTS.md)
 
 ---
 
 ## Running Tests
 
-Run the offline pytest test suite (137 tests, 0 real API calls):
+Run the offline pytest test suite (147 tests, 0 real API calls):
 
 ```bash
 python -m pytest

@@ -6,7 +6,7 @@ Produces:
 
 Validates:
 - 16 answered queries (12 client + 4 staff): score >= 0.65
-- 14 not-found queries (11 client + 3 staff): score < 0.65 and key terms absent
+- 15 not-found queries (12 client + 3 staff): score < 0.65 and key terms absent
 - Calibrates and prints cosine similarity matrix for not-found questions.
 """
 
@@ -133,114 +133,120 @@ SEED_DEFINITIONS: List[Dict[str, Any]] = [
         "question": "What is the monthly rent and annual escalation under the Gulberg office lease agreement?",
     },
 
-    # 11 Client Not-Found Questions (Grouped into clear thematic gap clusters)
-    # Cluster 1: Tax filing / FBR sales tax
+    # 12 Client Not-Found Questions (Restored specified set)
+    # Parking cluster (3 phrasings)
     {
-        "id": "c_nf_01",
+        "id": "c_nf_park_1",
         "audience": "client",
         "kind": "not_found",
-        "cluster": "tax_fbr",
-        "question": "What are the individual personal wealth tax brackets for salaried employees?",
+        "cluster": "parking",
+        "question": "Is there on-site vehicle parking available for visitors?",
     },
     {
-        "id": "c_nf_02",
+        "id": "c_nf_park_2",
         "audience": "client",
         "kind": "not_found",
-        "cluster": "tax_fbr",
-        "question": "How does a sole proprietor submit quarterly withholding statements through Iris?",
+        "cluster": "parking",
+        "question": "Where can motorists park their vehicles when arriving for an appointment?",
     },
     {
-        "id": "c_nf_03",
+        "id": "c_nf_park_3",
         "audience": "client",
         "kind": "not_found",
-        "cluster": "tax_fbr",
-        "question": "What are the steps to challenge an ex-parte property tax assessment before the tribunal?",
-    },
-
-    # Cluster 2: Immigration / Foreign work visas
-    {
-        "id": "c_nf_04",
-        "audience": "client",
-        "kind": "not_found",
-        "cluster": "immigration",
-        "question": "Does the firm process UK skilled worker visa and student visa applications?",
-    },
-    {
-        "id": "c_nf_05",
-        "audience": "client",
-        "kind": "not_found",
-        "cluster": "immigration",
-        "question": "Can your lawyers assist with Canadian permanent residency express entry filings?",
-    },
-    {
-        "id": "c_nf_06",
-        "audience": "client",
-        "kind": "not_found",
-        "cluster": "immigration",
-        "question": "What are the legal requirements for moving to Dubai on a UAE golden visa?",
+        "cluster": "parking",
+        "question": "Is dedicated visitor vehicle parking space provided on the premises?",
     },
 
-    # Cluster 3: International Patents / PCT
+    # Mobile wallets cluster (2 phrasings)
     {
-        "id": "c_nf_07",
+        "id": "c_nf_wallet_1",
         "audience": "client",
         "kind": "not_found",
-        "cluster": "patent_pct",
-        "question": "How do I register an international software patent application under the PCT?",
+        "cluster": "mobile_wallets",
+        "question": "Can I settle bills using digital wallets like JazzCash or Nayapay?",
     },
     {
-        "id": "c_nf_08",
+        "id": "c_nf_wallet_2",
         "audience": "client",
         "kind": "not_found",
-        "cluster": "patent_pct",
-        "question": "What is the patent priority examination timeline under the Paris Convention?",
-    },
-    {
-        "id": "c_nf_09",
-        "audience": "client",
-        "kind": "not_found",
-        "cluster": "patent_pct",
-        "question": "Can the firm draft patent claims for biomedical engineering innovations?",
+        "cluster": "mobile_wallets",
+        "question": "Are point of sale QR code transfers accepted via JazzCash or Nayapay?",
     },
 
-    # Cluster 4: Environmental & Maritime
+    # Other branches cluster (2 phrasings)
     {
-        "id": "c_nf_10",
+        "id": "c_nf_branch_1",
         "audience": "client",
         "kind": "not_found",
-        "cluster": "environment_maritime",
-        "question": "Does the firm advise manufacturing plants on hazardous chemical waste effluent disposal?",
+        "cluster": "other_branches",
+        "question": "Can clients visit foreign branches in the United Kingdom?",
     },
     {
-        "id": "c_nf_11",
+        "id": "c_nf_branch_2",
         "audience": "client",
         "kind": "not_found",
-        "cluster": "environment_maritime",
-        "question": "Can your team advise port operators on international ship ballast water management regulations?",
+        "cluster": "other_branches",
+        "question": "Can clients visit foreign branches in the United Arab Emirates?",
     },
 
-    # 3 Staff Not-Found Questions (Internal HR & Admin policies)
-    # Cluster 5: HR / Employee policies
+    # Single-question absent topics
     {
-        "id": "s_nf_01",
+        "id": "c_nf_instalment",
+        "audience": "client",
+        "kind": "not_found",
+        "cluster": "fee_instalments",
+        "question": "Can retainer invoices be split into scheduled installment plans?",
+    },
+    {
+        "id": "c_nf_probono",
+        "audience": "client",
+        "kind": "not_found",
+        "cluster": "pro_bono",
+        "question": "Can impoverished community groups access pro bono legal assistance for heritage preservation?",
+    },
+    {
+        "id": "c_nf_videocall",
+        "audience": "client",
+        "kind": "not_found",
+        "cluster": "video_consultation",
+        "question": "Can client meetings be scheduled virtually through Microsoft Teams?",
+    },
+    {
+        "id": "c_nf_taxfiling",
+        "audience": "client",
+        "kind": "not_found",
+        "cluster": "tax_filing",
+        "question": "Can the firm prepare and file annual personal income tax returns?",
+    },
+    {
+        "id": "c_nf_attestation",
+        "audience": "client",
+        "kind": "not_found",
+        "cluster": "attestation",
+        "question": "Does the chamber provide apostille legalization seals for educational diplomas?",
+    },
+
+    # 3 Staff Not-Found Questions
+    {
+        "id": "s_nf_dresscode",
         "audience": "staff",
         "kind": "not_found",
-        "cluster": "internal_hr",
-        "question": "What is the law firm's employee maternity leave policy and paid parental leave duration?",
+        "cluster": "court_dress_code",
+        "question": "What is the mandatory advocate dress code for High Court hearings?",
     },
     {
-        "id": "s_nf_02",
+        "id": "s_nf_leave",
         "audience": "staff",
         "kind": "not_found",
-        "cluster": "internal_hr",
-        "question": "What are the firm's remote work guidelines and home office equipment reimbursement caps?",
+        "cluster": "annual_leave",
+        "question": "How many days of paid annual vacation leave are granted each year?",
     },
     {
-        "id": "s_nf_03",
+        "id": "s_nf_travel",
         "audience": "staff",
         "kind": "not_found",
-        "cluster": "internal_hr",
-        "question": "What is the annual continuing legal education stipend allocated per associate?",
+        "cluster": "travel_reimbursement",
+        "question": "What per diem hotel allowances and fuel mileage reimbursement apply when traveling on business?",
     },
 ]
 
