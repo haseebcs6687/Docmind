@@ -13,6 +13,7 @@ from src.ui.chat_page import render_chat_page
 from src.ui.components import brand_header, sidebar_status_chip
 from src.ui.contracts_page import render_contracts_page
 from src.ui.documents_page import render_documents_page
+from src.ui.insights_page import render_insights_page
 from src.ui.state import clear_chat, get_store
 from src.ui.theme import inject_custom_theme
 
@@ -58,12 +59,18 @@ contracts_page = st.Page(
     icon=":material/gavel:",
     url_path="contracts",
 )
+insights_page = st.Page(
+    lambda: render_insights_page(role=st.session_state.get("current_role", "Staff")),
+    title="Knowledge Insights",
+    icon=":material/insights:",
+    url_path="insights",
+)
 
-# Contract Analyzer is visible in navigation only in Staff mode
+# Staff-only pages (Contract Analyzer & Knowledge Insights)
 current_role = st.session_state.get("current_role", "Staff")
 nav_pages = [chat_page, documents_page]
 if current_role == "Staff":
-    nav_pages.append(contracts_page)
+    nav_pages.extend([contracts_page, insights_page])
 
 pg = st.navigation(nav_pages)
 

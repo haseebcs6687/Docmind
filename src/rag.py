@@ -5,7 +5,8 @@ import json
 import logging
 import re
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
+import uuid
 
 from pydantic import BaseModel, Field
 
@@ -30,6 +31,8 @@ from src.gemini_client import (
     GenerationError,
     call_with_retry_and_fallback,
     create_gemini_client,
+    model_rejects_thinking,
+    record_model_rejects_thinking,
 )
 from src.vectorstore import VectorStore
 
@@ -64,6 +67,9 @@ class RagResponse:
     embed_ms: float = 0.0
     gen_ms: float = 0.0
     rewrite_ms: float = 0.0
+    top_source: Optional[str] = None
+    not_found_reason: str = ""  # "below_threshold" | "model_not_found" | "invalid_sources" | ""
+    _query_vec: Optional[List[float]] = field(default=None, compare=False, repr=False)
 
 
 class AnswerCache:
@@ -113,6 +119,9 @@ class AnswerCache:
             embed_ms=0.0,
             gen_ms=0.0,
             rewrite_ms=0.0,
+            top_source=resp.top_source,
+            not_found_reason=resp.not_found_reason,
+            _query_vec=None,
         )
 
     def set(
@@ -145,6 +154,9 @@ class AnswerCache:
             embed_ms=resp.embed_ms,
             gen_ms=resp.gen_ms,
             rewrite_ms=resp.rewrite_ms,
+            top_source=resp.top_source,
+            not_found_reason=resp.not_found_reason,
+            _query_vec=None,
         )
         self._cache[key] = (time.time(), cached_resp)
 
@@ -283,20 +295,36 @@ def generate_rag_answer(
         allowed_visibility = {"client", "staff"}
 
     t_embed_start = time.perf_counter()
+    query_vec: Optional[List[float]] = None
     try:
-        results = vstore.query(
+        q_res = vstore.query(
             search_q,
             k=TOP_K,
             allowed_visibility=allowed_visibility,
             practice_areas=practice_areas,
+            return_vector=True,
         )
+        if isinstance(q_res, tuple):
+            results, query_vec = q_res
+        else:
+            results = q_res
     except TypeError:
         # Backward-compatibility for mock stores in tests that do not accept kwargs
-        results = vstore.query(search_q, k=TOP_K)
+        try:
+            results = vstore.query(
+                search_q,
+                k=TOP_K,
+                allowed_visibility=allowed_visibility,
+                practice_areas=practice_areas,
+            )
+        except TypeError:
+            results = vstore.query(search_q, k=TOP_K)
+
     embed_ms = round((time.perf_counter() - t_embed_start) * 1000, 2)
     api_calls = 1
 
     top_score = results[0]["score"] if results else 0.0
+    top_source = (results[0].get("citation") or results[0].get("source") or "") if results else ""
 
     # 2. Retrieval Gate: top score must be >= SCORE_THRESHOLD
     if not results or top_score < SCORE_THRESHOLD:
@@ -312,6 +340,9 @@ def generate_rag_answer(
             embed_ms=embed_ms,
             gen_ms=0.0,
             rewrite_ms=0.0,
+            top_source=top_source,
+            not_found_reason="below_threshold",
+            _query_vec=query_vec,
         )
         if not skip_cache:
             GLOBAL_ANSWER_CACHE.set(search_q, store_fingerprint, resp, access_mode, practice_areas)
@@ -356,16 +387,31 @@ def generate_rag_answer(
             "temperature": GEN_TEMPERATURE,
             "system_instruction": system_instruction,
         }
-        if GEN_THINKING_LEVEL:
-            cfg_args["thinking_config"] = types.ThinkingConfig(thinking_level=GEN_THINKING_LEVEL)
+        current_thinking = os.getenv("GEN_THINKING_LEVEL") or GEN_THINKING_LEVEL
+        if current_thinking and not model_rejects_thinking(model_name):
+            cfg_args["thinking_config"] = types.ThinkingConfig(thinking_level=current_thinking)
 
-        config = types.GenerateContentConfig(**cfg_args)
-        resp = client.models.generate_content(
-            model=model_name,
-            contents=prompt_text,
-            config=config,
-        )
-        return getattr(resp, "text", "") or ""
+        try:
+            config = types.GenerateContentConfig(**cfg_args)
+            resp = client.models.generate_content(
+                model=model_name,
+                contents=prompt_text,
+                config=config,
+            )
+            return getattr(resp, "text", "") or ""
+        except Exception as exc:
+            err_str = str(exc).lower()
+            if ("invalid_argument" in err_str or "400" in err_str or "thinking" in err_str) and "thinking_config" in cfg_args:
+                logger.warning("Model '%s' rejected thinking config (400). Retrying without thinking.", model_name)
+                record_model_rejects_thinking(model_name)
+                del cfg_args["thinking_config"]
+                resp = client.models.generate_content(
+                    model=model_name,
+                    contents=prompt_text,
+                    config=types.GenerateContentConfig(**cfg_args),
+                )
+                return getattr(resp, "text", "") or ""
+            raise
 
     api_calls += 1
     t_gen_start = time.perf_counter()
@@ -373,8 +419,6 @@ def generate_rag_answer(
         lambda m: _execute_llm_call(m, user_prompt),
         primary_model=gen_model,
         fallback_model=GEMINI_FALLBACK_MODEL,
-        max_retries=GEN_MAX_RETRIES,
-        total_budget_seconds=GEN_TOTAL_BUDGET_SECONDS,
     )
 
     # Parse and validate JSON output with one repair retry
@@ -411,8 +455,12 @@ def generate_rag_answer(
             if isinstance(s, int) and 1 <= s <= len(results):
                 valid_used_indices.append(s)
 
-    if found and not valid_used_indices:
+    not_found_reason = ""
+    if not found:
+        not_found_reason = "model_not_found"
+    elif not valid_used_indices:
         found = False
+        not_found_reason = "invalid_sources"
 
     if not found:
         final_answer = NOT_FOUND
@@ -452,6 +500,9 @@ def generate_rag_answer(
         embed_ms=embed_ms,
         gen_ms=gen_ms,
         rewrite_ms=0.0,
+        top_source=top_source,
+        not_found_reason=not_found_reason,
+        _query_vec=query_vec if not found else None,
     )
 
     if not skip_cache:
@@ -475,6 +526,8 @@ class ChatSession:
         max_questions: int = MAX_QUESTIONS_PER_SESSION,
         access_mode: str = "staff",
         practice_areas: Optional[List[str]] = None,
+        session_id: Optional[str] = None,
+        analytics: Optional[Any] = None,
     ):
         self.store = store
         self.llm = llm
@@ -486,6 +539,8 @@ class ChatSession:
         self.max_questions = max_questions
         self.access_mode = access_mode
         self.practice_areas = practice_areas or []
+        self.session_id = session_id or uuid.uuid4().hex
+        self.analytics = analytics
 
     def reset(self) -> None:
         """Clear conversational history and session metrics."""
@@ -636,6 +691,25 @@ class ChatSession:
         if not skip_cache:
             cached_resp = GLOBAL_ANSWER_CACHE.get(clean_q, store_fp, self.access_mode, effective_pas)
             if cached_resp is not None:
+                if self.analytics is not None:
+                    c_kind = "answered" if cached_resp.found else "not_found"
+                    c_cited = [s.get("citation", s.get("source", "")) for s in cached_resp.sources]
+                    c_top_src = cached_resp.top_source or (c_cited[0] if c_cited else "")
+                    self.analytics.safe_log(
+                        session_id=self.session_id,
+                        audience=self.access_mode,
+                        kind=c_kind,
+                        question=clean_q,
+                        reason=cached_resp.not_found_reason,
+                        standalone="",
+                        top_source=c_top_src,
+                        top_score=cached_resp.top_score,
+                        cited_sources=c_cited,
+                        cached=True,
+                        latency_ms=0.0,
+                        model_used=cached_resp.model_used,
+                        vector=getattr(cached_resp, "_query_vec", None),
+                    )
                 return cached_resp
 
         start_time = time.perf_counter()
@@ -646,20 +720,64 @@ class ChatSession:
         rewrite_ms = round((time.perf_counter() - t_rw_start) * 1000, 2) if rewrite_calls > 0 else 0.0
 
         # 5. Answer flow with access mode and practice area filtering
-        resp = answer(
-            question=clean_q,
-            store=active_store,
-            llm=active_llm,
-            standalone_question=standalone_q,
-            access_mode=self.access_mode,
-            practice_areas=effective_pas,
-            skip_cache=skip_cache,
-        )
+        try:
+            resp = answer(
+                question=clean_q,
+                store=active_store,
+                llm=active_llm,
+                standalone_question=standalone_q,
+                access_mode=self.access_mode,
+                practice_areas=effective_pas,
+                skip_cache=skip_cache,
+            )
+        except Exception as exc:
+            if self.analytics is not None:
+                err_lower = str(exc).lower()
+                if "quota" in err_lower or "429" in err_lower:
+                    err_reason = "quota"
+                elif "timeout" in err_lower or "deadline" in err_lower:
+                    err_reason = "timeout"
+                elif "503" in err_lower or "500" in err_lower or "unavailable" in err_lower:
+                    err_reason = "server_error"
+                else:
+                    err_reason = "other"
+                self.analytics.safe_log(
+                    session_id=self.session_id,
+                    audience=self.access_mode,
+                    kind="error",
+                    question=clean_q,
+                    reason=err_reason,
+                    standalone=(standalone_q if standalone_q != clean_q else ""),
+                    latency_ms=round((time.perf_counter() - start_time) * 1000, 2),
+                )
+            raise
+
         if not resp.cached:
             resp.api_calls += rewrite_calls
             resp.latency_ms = round((time.perf_counter() - start_time) * 1000, 2)
             resp.rewrite_ms = rewrite_ms
         resp.standalone_question = standalone_q
+
+        # Log telemetry event for substantive query
+        if self.analytics is not None:
+            kind = "answered" if resp.found else "not_found"
+            cited = [s.get("citation", s.get("source", "")) for s in resp.sources]
+            top_src = resp.top_source or (cited[0] if cited else "")
+            self.analytics.safe_log(
+                session_id=self.session_id,
+                audience=self.access_mode,
+                kind=kind,
+                question=clean_q,
+                reason=resp.not_found_reason,
+                standalone=(standalone_q if standalone_q != clean_q else ""),
+                top_source=top_src,
+                top_score=resp.top_score,
+                cited_sources=cited,
+                cached=resp.cached,
+                latency_ms=resp.latency_ms,
+                model_used=resp.model_used,
+                vector=getattr(resp, "_query_vec", None),
+            )
 
         # Add to history only if answer was found
         if resp.found:

@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field
 from src.config import (
     GEMINI_FALLBACK_MODEL,
     GEMINI_MODEL,
+    GEN_ANALYSIS_TIMEOUT_SECONDS,
     GEN_THINKING_LEVEL,
     MAX_ANALYSES_PER_SESSION,
     MAX_ANALYSIS_CHARS,
@@ -27,6 +28,8 @@ from src.gemini_client import (
     GenerationError,
     call_with_retry_and_fallback,
     create_gemini_client,
+    model_rejects_thinking,
+    record_model_rejects_thinking,
 )
 from src.loaders import DocUnit
 
@@ -311,7 +314,7 @@ def analyze_contract(
     else:
         from google.genai import types
 
-        client = create_gemini_client()
+        client = create_gemini_client(timeout=GEN_ANALYSIS_TIMEOUT_SECONDS)
         cfg_args: Dict[str, Any] = {
             "response_mime_type": "application/json",
             "response_schema": ContractAnalysisExtraction,
@@ -324,21 +327,33 @@ def analyze_contract(
 
         def _call(target_model: str) -> str:
             call_cfg_args = dict(cfg_args)
-            if "thinking_config" in call_cfg_args and target_model != GEMINI_MODEL:
+            if model_rejects_thinking(target_model) and "thinking_config" in call_cfg_args:
                 del call_cfg_args["thinking_config"]
-            res = client.models.generate_content(
-                model=target_model,
-                contents=user_prompt,
-                config=types.GenerateContentConfig(**call_cfg_args),
-            )
-            return getattr(res, "text", "") or ""
+            try:
+                res = client.models.generate_content(
+                    model=target_model,
+                    contents=user_prompt,
+                    config=types.GenerateContentConfig(**call_cfg_args),
+                )
+                return getattr(res, "text", "") or ""
+            except Exception as exc:
+                err_str = str(exc).lower()
+                if ("invalid_argument" in err_str or "400" in err_str or "thinking" in err_str) and "thinking_config" in call_cfg_args:
+                    logger.warning("Model '%s' rejected thinking config (400). Remembering and retrying without thinking.", target_model)
+                    record_model_rejects_thinking(target_model)
+                    del call_cfg_args["thinking_config"]
+                    res = client.models.generate_content(
+                        model=target_model,
+                        contents=user_prompt,
+                        config=types.GenerateContentConfig(**call_cfg_args),
+                    )
+                    return getattr(res, "text", "") or ""
+                raise
 
         raw_output, model_name_used, _ = call_with_retry_and_fallback(
             fn=_call,
             primary_model=GEMINI_MODEL,
             fallback_model=fallback_model,
-            max_retries=4,
-            total_budget_seconds=90.0,
         )
 
     # 8. Parse and Repair JSON

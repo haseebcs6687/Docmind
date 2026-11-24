@@ -26,14 +26,26 @@ EMBED_BATCH_SLEEP_SECONDS: float = float(os.getenv("EMBED_BATCH_SLEEP_SECONDS", 
 
 # RAG Pipeline, Client Timeout and Retry Settings
 GEMINI_TIMEOUT_SECONDS: int = int(os.getenv("GEMINI_TIMEOUT_SECONDS", "25"))
+GEN_ANALYSIS_TIMEOUT_SECONDS: int = int(os.getenv("GEN_ANALYSIS_TIMEOUT_SECONDS", "45"))
 TOP_K: int = int(os.getenv("TOP_K", "5"))
 SCORE_THRESHOLD: float = float(os.getenv("SCORE_THRESHOLD", "0.65"))
 MAX_CITATIONS: int = int(os.getenv("MAX_CITATIONS", "3"))
 GEN_TEMPERATURE: float = float(os.getenv("GEN_TEMPERATURE", "0.1"))
+GEN_PRIMARY_ATTEMPTS: int = int(os.getenv("GEN_PRIMARY_ATTEMPTS", "2"))
+GEN_FALLBACK_ATTEMPTS: int = int(os.getenv("GEN_FALLBACK_ATTEMPTS", "2"))
 GEN_MAX_RETRIES: int = int(os.getenv("GEN_MAX_RETRIES", "3"))
-GEN_TOTAL_BUDGET_SECONDS: float = float(os.getenv("GEN_TOTAL_BUDGET_SECONDS", "40.0"))
+GEN_TOTAL_BUDGET_SECONDS: float = float(os.getenv("GEN_TOTAL_BUDGET_SECONDS", "60.0"))
 GEN_THINKING_LEVEL: Optional[str] = os.getenv("GEN_THINKING_LEVEL")
 HISTORY_TURNS: int = int(os.getenv("HISTORY_TURNS", "4"))
+APP_TIMEZONE: str = os.getenv("APP_TIMEZONE", "Asia/Karachi")
+
+# Analytics Configuration
+ANALYTICS_ENABLED: bool = os.getenv("ANALYTICS_ENABLED", "true").lower() in ("true", "1", "yes")
+ANALYTICS_DB_PATH: str = os.getenv("ANALYTICS_DB_PATH", "data/analytics.db")
+ANALYTICS_RETENTION_DAYS: int = int(os.getenv("ANALYTICS_RETENTION_DAYS", "30"))
+ANALYTICS_MAX_EVENTS: int = int(os.getenv("ANALYTICS_MAX_EVENTS", "5000"))
+GAP_CLUSTER_COSINE: float = float(os.getenv("GAP_CLUSTER_COSINE", "0.80"))
+GAP_JACCARD: float = float(os.getenv("GAP_JACCARD", "0.5"))
 
 # Contract Analysis Configuration
 MAX_ANALYSIS_CHARS: int = int(os.getenv("MAX_ANALYSIS_CHARS", "60000"))

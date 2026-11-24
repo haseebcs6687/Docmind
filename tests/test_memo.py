@@ -192,3 +192,26 @@ def test_client_memo_contains_only_session_content():
     assert "Commercial_Lease" not in full_text
     assert "Client_Intake_SOP" not in full_text
     assert "Confidentiality_and_Data_Policy" not in full_text
+
+
+def test_memo_date_uses_app_timezone_previous_day_utc():
+    """Verify that a UTC timestamp which is the previous day in UTC renders as the next day in Karachi (+5h)."""
+    # 2026-11-23 23:30:00 UTC is 2026-11-24 04:30:00 PKT (Asia/Karachi)
+    utc_time = datetime(2026, 11, 23, 23, 30, 0, tzinfo=timezone.utc)
+    messages = [
+        {"role": "user", "content": "What is the fee?"},
+        {
+            "role": "assistant",
+            "question": "What is the fee?",
+            "content": "PKR 5,000.",
+            "found": True,
+            "sources": [{"source": "Fee.pdf", "citation": "Fee.pdf, p. 1", "score": 0.8, "snippet": "5,000"}],
+        },
+    ]
+
+    docx_bytes = build_memo_docx(messages=messages, access_mode="staff", generated_on=utc_time)
+    doc = docx.Document(io.BytesIO(docx_bytes))
+    table = doc.tables[0]
+    date_val = table.cell(0, 1).text
+    assert date_val == "November 24, 2026"
+    assert memo_filename(utc_time) == "docmind-memo-20261124.docx"

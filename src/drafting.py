@@ -29,6 +29,8 @@ from src.gemini_client import (
     GenerationError,
     call_with_retry_and_fallback,
     create_gemini_client,
+    model_rejects_thinking,
+    record_model_rejects_thinking,
 )
 from src.rag import NOT_FOUND
 
@@ -425,26 +427,39 @@ def draft_client_reply(
             "temperature": GEN_TEMPERATURE,
             "system_instruction": system_instruction,
         }
-        if GEN_THINKING_LEVEL and model_name == "gemini-3.5-flash-lite":
+        current_thinking = os.getenv("GEN_THINKING_LEVEL") or GEN_THINKING_LEVEL
+        if current_thinking and not model_rejects_thinking(model_name):
             cfg_args["thinking_config"] = types.ThinkingConfig(
-                thinking_level=GEN_THINKING_LEVEL
+                thinking_level=current_thinking
             )
 
-        config = types.GenerateContentConfig(**cfg_args)
-        resp = client.models.generate_content(
-            model=model_name,
-            contents=prompt_text,
-            config=config,
-        )
-        return getattr(resp, "text", "") or ""
+        try:
+            config = types.GenerateContentConfig(**cfg_args)
+            resp = client.models.generate_content(
+                model=model_name,
+                contents=prompt_text,
+                config=config,
+            )
+            return getattr(resp, "text", "") or ""
+        except Exception as exc:
+            err_str = str(exc).lower()
+            if ("invalid_argument" in err_str or "400" in err_str or "thinking" in err_str) and "thinking_config" in cfg_args:
+                logger.warning("Model '%s' rejected thinking config (400). Retrying without thinking.", model_name)
+                record_model_rejects_thinking(model_name)
+                del cfg_args["thinking_config"]
+                resp = client.models.generate_content(
+                    model=model_name,
+                    contents=prompt_text,
+                    config=types.GenerateContentConfig(**cfg_args),
+                )
+                return getattr(resp, "text", "") or ""
+            raise
 
     gen_model = GEMINI_MODEL or "gemini-3.5-flash-lite"
     raw_output, model_used, fallback_used = call_with_retry_and_fallback(
         lambda m: _execute_draft_call(m, user_prompt),
         primary_model=gen_model,
         fallback_model=GEMINI_FALLBACK_MODEL,
-        max_retries=GEN_MAX_RETRIES,
-        total_budget_seconds=GEN_TOTAL_BUDGET_SECONDS,
     )
 
     # 7. Parse and Validate JSON output

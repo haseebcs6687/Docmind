@@ -24,5 +24,8 @@ Thumbs.db
 # Logs
 *.log
 
+# Analytics database
+data/analytics.db*
+
 # UI reference assets
 docs/ui-reference/

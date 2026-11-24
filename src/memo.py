@@ -8,12 +8,14 @@ from datetime import datetime, timezone
 import io
 import re
 from typing import Any, Dict, List, Optional
+import zoneinfo
 
 import docx
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Inches, Pt, RGBColor
 
+from src.config import APP_TIMEZONE
 from src.rag import check_small_talk
 
 
@@ -30,9 +32,13 @@ def strip_invalid_xml_chars(text: Optional[str]) -> str:
 
 
 def memo_filename(dt: Optional[datetime] = None) -> str:
-    """Generate standard memo export filename (e.g. docmind-memo-20261124.docx)."""
+    """Generate standard memo export filename in APP_TIMEZONE (e.g. docmind-memo-20261124.docx)."""
+    tz = zoneinfo.ZoneInfo(APP_TIMEZONE)
     now = dt or datetime.now(timezone.utc)
-    return f"docmind-memo-{now.strftime('%Y%m%d')}.docx"
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+    local_now = now.astimezone(tz)
+    return f"docmind-memo-{local_now.strftime('%Y%m%d')}.docx"
 
 
 def _add_page_number_to_run(run: Any) -> None:
@@ -74,7 +80,11 @@ def build_memo_docx(
     Raises:
         MemoGenerationError: If there are no answered questions to include.
     """
+    tz = zoneinfo.ZoneInfo(APP_TIMEZONE)
     now = generated_on or datetime.now(timezone.utc)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+    local_now = now.astimezone(tz)
 
     # 1. Truncate conversation to the last 40 turns
     limited_messages = messages[-40:] if len(messages) > 40 else messages
@@ -147,7 +157,7 @@ def build_memo_docx(
     table = doc.add_table(rows=4, cols=2)
     table.style = "Table Grid"
     table_data = [
-        ("Date", now.strftime("%B %d, %Y")),
+        ("Date", local_now.strftime("%B %d, %Y")),
         ("Prepared by", "DocMind assistant (draft)"),
         ("View", f"{access_mode.capitalize()} view"),
         ("Questions answered", str(len(answered_turns))),

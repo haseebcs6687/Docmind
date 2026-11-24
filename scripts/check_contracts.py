@@ -7,8 +7,8 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-# Use MINIMAL thinking level to bound latency and avoid server busy spikes
-os.environ["GEN_THINKING_LEVEL"] = "MINIMAL"
+# Default thinking level (unset as determined by A/B evaluation)
+# os.environ["GEN_THINKING_LEVEL"] = "MINIMAL"
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
@@ -136,24 +136,8 @@ def main():
     print(f"Retrieved {len(msa_units)} units for {msa_name}.")
 
     print(f"Calling Gemini to analyze {msa_name}...", flush=True)
-    msa_analysis = None
-    for attempt in range(1, 4):
-        try:
-            msa_analysis = analyze_contract(msa_units, msa_name, access_mode="staff", fallback_model="")
-            break
-        except Exception as e:
-            if "503" in str(e) or "UNAVAILABLE" in str(e) or "busy" in str(e).lower():
-                print(f"Upstream server busy ({e}). Waiting 12s before attempt {attempt+1}...", flush=True)
-                time.sleep(12.0)
-            else:
-                raise
-    if msa_analysis is None:
-        raise RuntimeError("Failed to analyze MSA after retries.")
+    msa_analysis = analyze_contract(msa_units, msa_name, access_mode="staff")
     p1, t1, u1 = evaluate_analysis(msa_name, msa_analysis, MSA_ANSWER_KEY)
-
-    # Respect rate limits between calls
-    print("\nPausing 25s before analyzing second contract to fully refresh rate limits...", flush=True)
-    time.sleep(25.0)
 
     # 2. Analyze Lease
     lease_name = "Commercial_Lease_Agreement_Gulberg_Office.docx"
@@ -164,19 +148,7 @@ def main():
     print(f"Retrieved {len(lease_units)} units for {lease_name}.", flush=True)
 
     print(f"Calling Gemini to analyze {lease_name}...", flush=True)
-    lease_analysis = None
-    for attempt in range(1, 4):
-        try:
-            lease_analysis = analyze_contract(lease_units, lease_name, access_mode="staff", fallback_model="")
-            break
-        except Exception as e:
-            if "503" in str(e) or "UNAVAILABLE" in str(e) or "busy" in str(e).lower():
-                print(f"Upstream server busy ({e}). Waiting 15s before attempt {attempt+1}...", flush=True)
-                time.sleep(15.0)
-            else:
-                raise
-    if lease_analysis is None:
-        raise RuntimeError("Failed to analyze Lease after retries.")
+    lease_analysis = analyze_contract(lease_units, lease_name, access_mode="staff")
     p2, t2, u2 = evaluate_analysis(lease_name, lease_analysis, LEASE_ANSWER_KEY)
 
     # 3. Test In-Process Live Cache Hit

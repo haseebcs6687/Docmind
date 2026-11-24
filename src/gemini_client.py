@@ -11,7 +11,10 @@ from src.config import (
     GEMINI_FALLBACK_MODEL,
     GEMINI_MODEL,
     GEMINI_TIMEOUT_SECONDS,
+    GEN_ANALYSIS_TIMEOUT_SECONDS,
+    GEN_FALLBACK_ATTEMPTS,
     GEN_MAX_RETRIES,
+    GEN_PRIMARY_ATTEMPTS,
     GEN_TOTAL_BUDGET_SECONDS,
     get_gemini_api_key,
 )
@@ -19,6 +22,20 @@ from src.config import (
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
+
+# Process-level set tracking models that reject thinking_config (400 INVALID_ARGUMENT)
+_MODELS_REJECTING_THINKING: set[str] = set()
+
+
+def record_model_rejects_thinking(model_name: str) -> None:
+    """Record that a model does not support thinking_config."""
+    if model_name:
+        _MODELS_REJECTING_THINKING.add(model_name)
+
+
+def model_rejects_thinking(model_name: str) -> bool:
+    """Return True if the model is known to reject thinking_config."""
+    return model_name in _MODELS_REJECTING_THINKING
 
 
 class ErrorCategory(str, Enum):
@@ -199,43 +216,43 @@ def call_with_retry_and_fallback(
     call_fn: Optional[Callable[[str], T]] = None,
     primary_model: str = GEMINI_MODEL,
     fallback_model: Optional[str] = None,
-    max_retries: int = GEN_MAX_RETRIES,
+    primary_attempts: int = GEN_PRIMARY_ATTEMPTS,
+    fallback_attempts: int = GEN_FALLBACK_ATTEMPTS,
     total_budget_seconds: float = GEN_TOTAL_BUDGET_SECONDS,
     clock: Callable[[], float] = time.time,
     sleeper: Callable[[float], None] = time.sleep,
     fn: Optional[Callable[[str], T]] = None,
+    max_retries: Optional[int] = None,
 ) -> Tuple[T, str, bool]:
-    """Execute an API call with bounded retries, total time budget, and fallback model.
+    """Execute an API call with early failover, bounded retries, and total time budget.
 
-    Args:
-        call_fn: Callable taking model_name: str and returning result T (or fn alias).
-        primary_model: Name of the primary model to invoke.
-        fallback_model: Optional fallback model if primary fails with SERVER_BUSY, TIMEOUT, or MODEL_UNAVAILABLE.
-        max_retries: Maximum retry attempts for transient errors on the active model.
-        total_budget_seconds: Hard upper bound on elapsed time across all retries and fallback.
-        clock: Monotonic or wall clock provider (injectable for unit tests).
-        sleeper: Sleep function (injectable for unit tests).
-        fn: Keyword alias for call_fn.
-
-    Returns:
-        Tuple of (result, model_used, fallback_used)
-
-    Raises:
-        GenerationError: When attempts are exhausted or a non-retryable error occurs.
+    Architecture (Early Failover):
+    - Primary attempts: bounded by primary_attempts (default GEN_PRIMARY_ATTEMPTS = 2).
+    - Primary budget: bounded by total_budget_seconds / 2.0 (so fallback always gets time).
+    - After primary's attempts fail with SERVER_BUSY, TIMEOUT, NETWORK (or MODEL_UNAVAILABLE),
+      switches immediately to fallback_model.
+    - Fallback attempts: bounded by fallback_attempts (default GEN_FALLBACK_ATTEMPTS = 2).
+    - Non-retryable errors (QUOTA_DAILY, AUTH, BAD_REQUEST) are NEVER retried.
     """
     target_fn = call_fn if call_fn is not None else fn
     if target_fn is None:
         raise ValueError("A callable function must be provided to call_with_retry_and_fallback.")
 
+    # Backward compatibility: if max_retries is passed, respect it as an upper bound on primary attempts
+    effective_primary_attempts = primary_attempts
+    if max_retries is not None:
+        effective_primary_attempts = min(primary_attempts, max_retries)
+
     start_time = clock()
     target_model = primary_model
     fallback_candidate = fallback_model if fallback_model is not None else GEMINI_FALLBACK_MODEL
-    if not fallback_candidate:
+    if not fallback_candidate or fallback_candidate == primary_model:
         fallback_candidate = None
-    fallback_used = False
 
-    attempt = 0
+    fallback_used = False
+    attempts_made = 0
     backoff = 2.0
+    primary_budget = total_budget_seconds / 2.0
 
     while True:
         elapsed = clock() - start_time
@@ -245,6 +262,18 @@ def call_with_retry_and_fallback(
                 f"Total retry budget of {total_budget_seconds}s exceeded."
             )
 
+        # Before making attempt, check if primary budget is exhausted and switch to fallback
+        if not fallback_used and fallback_candidate:
+            if attempts_made >= effective_primary_attempts or elapsed >= primary_budget:
+                logger.warning(
+                    "Primary phase ended (attempts: %d/%d, elapsed: %.1fs/%.1fs); switching to fallback '%s'",
+                    attempts_made, effective_primary_attempts, elapsed, primary_budget, fallback_candidate
+                )
+                target_model = fallback_candidate
+                fallback_used = True
+                attempts_made = 0
+                backoff = 1.0
+
         try:
             result = target_fn(target_model)
             return result, target_model, fallback_used
@@ -252,22 +281,21 @@ def call_with_retry_and_fallback(
         except Exception as e:
             cat = classify_error(e)
 
-            # Non-retryable categories: never retry
+            # Non-retryable categories: NEVER retry
             if cat in (ErrorCategory.QUOTA_DAILY, ErrorCategory.AUTH, ErrorCategory.BAD_REQUEST):
                 raise GenerationError(cat, str(e), original_error=e)
 
-            # MODEL_UNAVAILABLE: Immediate fallback candidate switch if available
+            # MODEL_UNAVAILABLE (404): Immediate failover to fallback if available
             if cat == ErrorCategory.MODEL_UNAVAILABLE:
-                if fallback_candidate and not fallback_used and target_model != fallback_candidate:
+                if fallback_candidate and not fallback_used:
                     logger.warning(
-                        "Primary model '%s' unavailable (404); attempting fallback model '%s'",
+                        "Primary model '%s' unavailable (404); early failover to fallback model '%s'",
                         primary_model,
                         fallback_candidate,
                     )
                     target_model = fallback_candidate
                     fallback_used = True
-                    attempt = 0
-                    max_retries = 1
+                    attempts_made = 0
                     backoff = 1.0
                     continue
                 raise GenerationError(cat, str(e), original_error=e)
@@ -279,14 +307,61 @@ def call_with_retry_and_fallback(
                 ErrorCategory.TIMEOUT,
                 ErrorCategory.NETWORK,
             )
-
             if not is_retryable:
                 raise GenerationError(cat, str(e), original_error=e)
 
-            if attempt < max_retries:
-                attempt += 1
-                remaining_budget = total_budget_seconds - (clock() - start_time)
-                wait_time = min(backoff + random.uniform(0.1, 0.5), remaining_budget)
+            attempts_made += 1
+            now = clock()
+            total_remaining = total_budget_seconds - (now - start_time)
+
+            if not fallback_used and fallback_candidate:
+                # Primary failed: check if attempts or primary budget exceeded
+                primary_remaining = primary_budget - (now - start_time)
+                if attempts_made >= effective_primary_attempts or primary_remaining <= 0:
+                    logger.warning(
+                        "Primary model '%s' failed attempt %d/%d with %s; early failover to fallback '%s'",
+                        primary_model,
+                        attempts_made,
+                        effective_primary_attempts,
+                        cat.value,
+                        fallback_candidate,
+                    )
+                    target_model = fallback_candidate
+                    fallback_used = True
+                    attempts_made = 0
+                    backoff = 1.0
+                    continue
+
+                # Retry primary
+                wait_time = min(backoff + random.uniform(0.1, 0.4), primary_remaining, total_remaining)
+                if wait_time <= 0:
+                    # Time for primary up, failover immediately
+                    target_model = fallback_candidate
+                    fallback_used = True
+                    attempts_made = 0
+                    backoff = 1.0
+                    continue
+
+                logger.warning(
+                    "[Retry primary] attempt %d/%d, wait %.2fs, error %s",
+                    attempts_made,
+                    effective_primary_attempts,
+                    wait_time,
+                    type(e).__name__,
+                )
+                sleeper(wait_time)
+                backoff *= 2.0
+            else:
+                # We are in fallback phase (or primary without fallback)
+                max_current = fallback_attempts if fallback_used else effective_primary_attempts
+                if attempts_made >= max_current:
+                    raise GenerationError(
+                        cat,
+                        f"Model '{target_model}' failed after {attempts_made} attempts: {e}",
+                        original_error=e,
+                    )
+
+                wait_time = min(backoff + random.uniform(0.1, 0.4), total_remaining)
                 if wait_time <= 0:
                     raise GenerationError(
                         ErrorCategory.TIMEOUT,
@@ -294,34 +369,12 @@ def call_with_retry_and_fallback(
                     )
 
                 logger.warning(
-                    "[Retry] attempt %d/%d, wait %.2fs, error %s",
-                    attempt,
-                    max_retries,
+                    "[Retry %s] attempt %d/%d, wait %.2fs, error %s",
+                    "fallback" if fallback_used else "primary",
+                    attempts_made,
+                    max_current,
                     wait_time,
                     type(e).__name__,
                 )
                 sleeper(wait_time)
                 backoff *= 2.0
-            else:
-                # Primary model exhausted retries with SERVER_BUSY or TIMEOUT
-                if (
-                    fallback_candidate
-                    and not fallback_used
-                    and target_model != fallback_candidate
-                    and cat in (ErrorCategory.SERVER_BUSY, ErrorCategory.TIMEOUT)
-                ):
-                    logger.warning(
-                        "Primary model '%s' failed after %d retries with %s; switching to fallback model '%s'",
-                        primary_model,
-                        max_retries,
-                        cat.value,
-                        fallback_candidate,
-                    )
-                    target_model = fallback_candidate
-                    fallback_used = True
-                    attempt = 0
-                    max_retries = 1
-                    backoff = 1.0
-                    continue
-
-                raise GenerationError(cat, str(e), original_error=e)

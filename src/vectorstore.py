@@ -394,16 +394,25 @@ class VectorStore:
         embed_fn: Optional[Callable[[List[str], str], List[List[float]]]] = None,
         allowed_visibility: Optional[Union[Set[str], List[str]]] = None,
         practice_areas: Optional[List[str]] = None,
-    ) -> List[Dict[str, Any]]:
+        return_vector: bool = False,
+    ) -> Union[List[Dict[str, Any]], Tuple[List[Dict[str, Any]], Optional[List[float]]]]:
         """Query the vector store with semantic search and return results with similarity scores.
 
         Similarity Score Calculation:
             Chroma uses cosine distance where distance = 1 - cosine_similarity.
             We convert this to a normalized similarity score:
                 similarity = max(0.0, min(1.0, 1.0 - distance))
+
+        Args:
+            question: Natural language question to search.
+            k: Number of nearest neighbors to retrieve.
+            embed_fn: Optional embedding callable for testing.
+            allowed_visibility: Set or list of visibility tags permitted ("client", "staff").
+            practice_areas: Optional list of practice areas to filter by.
+            return_vector: If True, returns (results, query_vector). Otherwise returns results.
         """
         if self.count() == 0 or not question.strip():
-            return []
+            return ([], None) if return_vector else []
 
         if embed_fn is not None:
             q_embeds = embed_fn([question.strip()], "RETRIEVAL_QUERY")
@@ -411,7 +420,7 @@ class VectorStore:
             q_embeds = embed_texts([question.strip()], task_type="RETRIEVAL_QUERY")
 
         if not q_embeds:
-            return []
+            return ([], None) if return_vector else []
 
         query_vector = q_embeds[0]
         n_results = min(k, self.count())
@@ -467,6 +476,8 @@ class VectorStore:
                 "practice_area": meta.get("practice_area", "General"),
             })
 
+        if return_vector:
+            return output, query_vector
         return output
 
     def get_source_units(

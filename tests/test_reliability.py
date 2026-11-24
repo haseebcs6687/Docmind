@@ -210,8 +210,8 @@ def test_503_exhausted_triggers_fallback():
     assert result == "FALLBACK_SUCCESS"
     assert model_used == GEMINI_FALLBACK_MODEL
     assert fallback_used is True
-    # Primary model called 3 times (1 initial + 2 retries), then fallback model called
-    assert calls.count(GEMINI_MODEL) == 3
+    # Primary model called 2 times with early failover, then fallback model called
+    assert calls.count(GEMINI_MODEL) == 2
     assert calls.count(GEMINI_FALLBACK_MODEL) == 1
 
 
@@ -479,3 +479,141 @@ def test_missing_api_key_renders_clean_setup_card():
         # Should render warning setup card
         warnings = [w.value for w in at.warning]
         assert any("Gemini API Key Required" in w for w in warnings)
+
+
+# ---------------------------------------------------------------------------
+# 13. Step 14: Early Failover, Timeout Override, and Budget Enforcement
+# ---------------------------------------------------------------------------
+
+def test_early_failover_after_two_primary_503s():
+    """Verify that after 2 primary 503s, execution fails over to the fallback model."""
+    clock_time = 0.0
+
+    def mock_clock():
+        return clock_time
+
+    def mock_sleeper(seconds):
+        nonlocal clock_time
+        clock_time += seconds
+
+    call_history = []
+
+    def mock_call(model_name: str):
+        nonlocal clock_time
+        clock_time += 0.5
+        call_history.append((model_name, clock_time))
+        if model_name == "gemini-3.5-flash-lite":
+            raise FakeAPIError(503, "This model is currently experiencing high demand.")
+        return "Fallback answer content"
+
+    result, model_used, fallback_used = call_with_retry_and_fallback(
+        mock_call,
+        primary_model="gemini-3.5-flash-lite",
+        fallback_model="gemini-3.1-flash-lite",
+        primary_attempts=2,
+        fallback_attempts=2,
+        total_budget_seconds=60.0,
+        clock=mock_clock,
+        sleeper=mock_sleeper,
+    )
+
+    assert result == "Fallback answer content"
+    assert model_used == "gemini-3.1-flash-lite"
+    assert fallback_used is True
+    # Primary attempted twice, then fallback succeeded on first try
+    primary_calls = [m for m, _ in call_history if m == "gemini-3.5-flash-lite"]
+    fallback_calls = [m for m, _ in call_history if m == "gemini-3.1-flash-lite"]
+    assert len(primary_calls) == 2
+    assert len(fallback_calls) == 1
+    assert clock_time <= 60.0
+
+
+def test_fallback_also_failing_raises_friendly_error_within_budget():
+    """Verify that when both primary and fallback exhaust attempts, a friendly error is raised."""
+    clock_time = 0.0
+
+    def mock_clock():
+        return clock_time
+
+    def mock_sleeper(seconds):
+        nonlocal clock_time
+        clock_time += seconds
+
+    call_history = []
+
+    def mock_call(model_name: str):
+        nonlocal clock_time
+        clock_time += 1.0
+        call_history.append((model_name, clock_time))
+        raise FakeAPIError(503, "High demand unavailable")
+
+    with pytest.raises(GenerationError) as exc_info:
+        call_with_retry_and_fallback(
+            mock_call,
+            primary_model="gemini-3.5-flash-lite",
+            fallback_model="gemini-3.1-flash-lite",
+            primary_attempts=2,
+            fallback_attempts=2,
+            total_budget_seconds=60.0,
+            clock=mock_clock,
+            sleeper=mock_sleeper,
+        )
+
+    assert exc_info.value.category == ErrorCategory.SERVER_BUSY
+    # Primary called twice, fallback called twice
+    primary_calls = [m for m, _ in call_history if m == "gemini-3.5-flash-lite"]
+    fallback_calls = [m for m, _ in call_history if m == "gemini-3.1-flash-lite"]
+    assert len(primary_calls) == 2
+    assert len(fallback_calls) == 2
+    assert clock_time <= 60.0
+
+
+def test_timeout_override_respected():
+    """Verify that timeout override is applied to client HttpOptions (45s analysis vs 25s chat)."""
+    from src.config import GEMINI_TIMEOUT_SECONDS, GEN_ANALYSIS_TIMEOUT_SECONDS
+    from src.gemini_client import create_gemini_client
+
+    with mock.patch("google.genai.Client") as mock_client_cls:
+        # Default chat client
+        create_gemini_client(api_key="fake-test-key")
+        args, kwargs = mock_client_cls.call_args
+        http_opts = kwargs.get("http_options")
+        assert http_opts.timeout == GEMINI_TIMEOUT_SECONDS * 1000
+
+        # Analysis client with timeout override
+        create_gemini_client(api_key="fake-test-key", timeout=GEN_ANALYSIS_TIMEOUT_SECONDS)
+        args, kwargs = mock_client_cls.call_args
+        http_opts_override = kwargs.get("http_options")
+        assert http_opts_override.timeout == GEN_ANALYSIS_TIMEOUT_SECONDS * 1000
+
+
+def test_total_time_never_exceeds_budget():
+    """Verify that retry loop aborts cleanly before exceeding total budget."""
+    clock_time = 0.0
+
+    def mock_clock():
+        return clock_time
+
+    def mock_sleeper(seconds):
+        nonlocal clock_time
+        clock_time += seconds
+
+    def mock_call(model_name: str):
+        nonlocal clock_time
+        clock_time += 15.0  # Slow call taking 15s each
+        raise FakeAPIError(503, "Slow server error")
+
+    with pytest.raises(GenerationError) as exc_info:
+        call_with_retry_and_fallback(
+            mock_call,
+            primary_model="gemini-3.5-flash-lite",
+            fallback_model="gemini-3.1-flash-lite",
+            primary_attempts=2,
+            fallback_attempts=2,
+            total_budget_seconds=30.0,
+            clock=mock_clock,
+            sleeper=mock_sleeper,
+        )
+
+    assert exc_info.value.category in (ErrorCategory.TIMEOUT, ErrorCategory.SERVER_BUSY)
+    assert clock_time <= 35.0

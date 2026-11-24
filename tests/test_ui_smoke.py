@@ -340,3 +340,32 @@ def test_draft_button_and_memo_export_in_ui():
         client_memo_download = [b for b in at.download_button if "export memo" in b.label.lower()]
         assert len(client_memo_download) == 1
 
+
+def test_insights_page_access_and_navigation(tmp_path):
+    """Verify that Knowledge Insights is strictly Staff-only and absent in Client mode."""
+    from src.analytics import AnalyticsStore
+    from src.ui.insights_page import render_insights_page
+
+    mock_store = mock.MagicMock(spec=VectorStore)
+    mock_store.count.return_value = 5
+    mock_store.list_sources.return_value = [{"name": "Doc.pdf", "chunk_count": 5}]
+
+    mock_analytics = AnalyticsStore(db_path=str(tmp_path / "smoke_analytics.db"))
+
+    with mock.patch("src.ui.state.get_store", return_value=mock_store), \
+         mock.patch("src.ui.state.get_analytics", return_value=mock_analytics), \
+         mock.patch("src.ui.chat_page.get_store", return_value=mock_store), \
+         mock.patch("src.ui.documents_page.get_store", return_value=mock_store), \
+         mock.patch("app.get_store", return_value=mock_store):
+
+        # 1. Staff Mode: Contract Analyzer & Knowledge Insights are present in nav
+        at = AppTest.from_file(APP_PATH, default_timeout=15)
+        at.run()
+        assert len(at.exception) == 0
+
+        # Switch to Client mode
+        at.sidebar.segmented_control(key="role_switcher").set_value("Client").run()
+        assert len(at.exception) == 0
+        assert at.session_state.current_role == "Client"
+
+

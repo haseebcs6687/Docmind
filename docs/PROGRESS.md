@@ -639,7 +639,7 @@
       - *Root cause of "48 vs 52"*: In Step 11, the total chunks across 6 documents was 71. The 2 staff docs totaled 19 chunks (11 + 8). 71 - 19 = 52. The narrative in Step 11 recorded "48" due to an arithmetic reporting mistake (71 - 23 or assuming FAQ had 15 chunks instead of 19). The real chunk count for the 4 client documents was always 52.
       - *Retrieval Isolation Verification*: Extended `scripts/check_access.py` with 2 contract queries. Verified that across all 13 query categories in Client mode, **ZERO** staff-only chunks were returned (`[PASS] Strict visibility boundary verified`).
     - **check_contracts Settings History & Re-run (A2)**:
-      - Documented all settings/code changes made during Step 12: added 5s cooldown / 6s inter-call sleep to protect free-tier 15 RPM; disabled preview model fallback (`fallback_model=""`) due to 20 RPD exhaustion; enabled `ThinkingLevel.MINIMAL` to prevent deep-thinking timeouts on 13k-char prompts; upgraded quote verification with case/whitespace normalization, multi-fragment splitting (`...`, `…`, `\n`), and cross-unit relocation.
+      - Documented all settings/code changes made during Step 12: added 5s cooldown / 6s inter-call sleep to protect free-tier 15 RPM; disabled fallback (`fallback_model=""`) due to free-tier daily request quota exhaustion `429 RESOURCE_EXHAUSTED`; enabled `ThinkingLevel.MINIMAL` to prevent deep-thinking timeouts on 13k-char prompts; upgraded quote verification with case/whitespace normalization, multi-fragment splitting (`...`, `…`, `\n`), and cross-unit relocation.
       - Confirmed `GEN_THINKING_LEVEL` is commented out/unset in `.env.example`.
       - Re-ran `scripts/check_contracts.py` with default settings (`GEN_THINKING_LEVEL` unset). Reported honest outcome: `gemini-3.5-flash-lite` engaged default deep thinking on the large prompt, resulting in upstream `503 UNAVAILABLE` ("model is currently experiencing high demand") after 4 bounded retries, confirming that `ThinkingLevel.MINIMAL` is strongly advantageous for large contract prompts.
     - **Logging Audit (A3)**:
@@ -698,6 +698,89 @@
   - `docs/PROGRESS.md`
 - **Known Limitations**:
   - The automated numeric faithfulness check verifies quantities, rates, percentages, days, and times, but cannot detect semantic word-level hallucinations (e.g. replacing "partner" with "director"). Full staff review remains mandatory before sending drafts.
+
+## Step 14: Knowledge Insights Dashboard, Early Failover & Analytics Engine
+- **What was built**:
+  - **PART A - Reliability Follow-ups & Early Failover**:
+    - **Default-Config Failure Diagnosis**: Investigated Step 13 contract failure (4x 503). Discovered that `check_contracts.py` explicitly passed `fallback_model=""`, which disabled the fallback candidate (`fallback_candidate = None`). Outer script-level loops also caught errors and retried on the primary model alone. Removed all script-level workarounds and enabled early failover.
+    - **Early Failover Core (`src/gemini_client.py`)**:
+      - Config additions: `GEN_PRIMARY_ATTEMPTS=2`, `GEN_FALLBACK_ATTEMPTS=2`, `GEN_TOTAL_BUDGET_SECONDS=60.0`.
+      - Bounded primary phase: primary model is attempted at most 2 times and constrained to <= half of total budget (30s).
+      - On transient failures (`SERVER_BUSY`, `TIMEOUT`, `NETWORK`, `MODEL_UNAVAILABLE`), immediately switches to fallback model for up to 2 attempts within remaining budget.
+      - Non-retryable errors (`QUOTA_DAILY`, `AUTH`, `BAD_REQUEST`) fail fast with no retry.
+    - **Per-Call Timeout Override**: Added `GEN_ANALYSIS_TIMEOUT_SECONDS=45` for contract analysis on large contexts (~13k chars), while chat generation remains at `GEMINI_TIMEOUT_SECONDS=25`.
+    - **Model Thinking Rejection Handling**: Gracefully catches `400 INVALID_ARGUMENT` when a model (e.g. `gemini-3.8-flash`) rejects `thinking_config`, records rejection in `_MODELS_REJECTING_THINKING`, and retries without thinking config.
+    - **A/B Test Outcome & Literal Decision Rule (`scripts/thinking_ab.py`)**:
+      - Conducted 6-call interleaved A/B benchmark on MSA (3 unset vs 3 MINIMAL, 8s inter-call delay):
+        - Run 1 (unset): PASS (14/14, 0 unverified, 8.94s, gemini-3.5-flash-lite)
+        - Run 2 (MINIMAL): FAIL (21.24s, 503 UNAVAILABLE on both primary & fallback)
+        - Run 3 (unset): PASS (14/14, 0 unverified, 11.64s, gemini-3.5-flash-lite)
+        - Run 4 (MINIMAL): PASS (14/14, 0 unverified, 6.51s, gemini-3.5-flash-lite)
+        - Run 5 (unset): FAIL (12.29s, 503 UNAVAILABLE)
+        - Run 6 (MINIMAL): PASS (14/14, 0 unverified, 4.49s, gemini-3.5-flash-lite)
+      - Statistical medians: unset = 10.29s, MINIMAL = 5.50s; facts matched: 14/14 for both; unverified: 0 for both; failures: 1/3 for unset vs 1/3 for MINIMAL.
+      - Literal Decision Rule: In Pair 1, MINIMAL failed while unset succeeded. Because MINIMAL did not match >= as many facts as unset in every run pair, the literal decision rule required leaving UNSET as the default.
+      - Single run of `scripts/check_contracts.py` with final default (unset): MSA 14/14 (100%), Lease 13/14 (92.9%, Effective Date extracted as 20 March 2026 execution date vs 1 April 2026 commencement date), 0 unverified terms, cache hit 100% identical in 4.84 ms.
+    - **Claims & Docs Audit**: Removed unsubstantiated "20 RPD preview quota" claim and rephrased accurately as free-tier daily request quota exhaustion `429 RESOURCE_EXHAUSTED`.
+    - **Timezone Verification**: Added `APP_TIMEZONE="Asia/Karachi"` (via standard library `zoneinfo`). Verified local time, UTC now, and memo date generation (`Asia/Karachi`). Added test proving UTC timestamp on the previous day correctly renders as the next day in Karachi.
+  - **PART B - Analytics Core & PII Redaction (`src/analytics.py`)**:
+    - Embedded SQLite database at `data/analytics.db` with WAL mode (`PRAGMA journal_mode=WAL`), write lock synchronization (`threading.Lock()`), and parameterized SQL.
+    - Privacy & Redaction: `redact_pii(text)` strips emails, Pakistani and international phone numbers, CNIC/ID numbers (5-7-1 pattern and 9+ digit runs) to `[email]`, `[phone]`, `[id]`, and truncates queries to 300 characters. No answers, IP addresses, user agents, or raw document passages are stored.
+    - Vector Storage Policy: float16 BLOB (`np.float16`) stored exclusively for `not_found` events to enable knowledge gap clustering. `vec` is strictly `NULL` for answered and error events.
+    - Clustering Engine: groups not-found queries by exact normalized text, then merges clusters where centroids have cosine similarity >= `GAP_CLUSTER_COSINE=0.80` (or token Jaccard >= 0.5 fallback). Suggested actions: "Add new content" (score < 0.55) vs "Expand an existing document" (0.55..0.65).
+    - CSV Export with Formula Injection Defense: `gaps_to_csv()` prefixes dangerous formula characters (`=`, `+`, `-`, `@`, `\t`, `\r`) with a single quote (`'`).
+    - Retention & Purging: automatic throttled background purging removing events older than `ANALYTICS_RETENTION_DAYS=30` and capping total rows to `ANALYTICS_MAX_EVENTS=5000`.
+  - **PART C - Wiring (`src/rag.py`, `src/vectorstore.py`, `src/ui/state.py`)**:
+    - `RagResponse`: added `top_source`, `not_found_reason` (`"below_threshold" | "model_not_found" | "invalid_sources"`), and private `_query_vec` field (excluded from equality, repr, and cache).
+    - `VectorStore.query()`: added `return_vector=False` option returning `(results, query_vector)` when True.
+    - `ChatSession`: generates unique `session_id = uuid.uuid4().hex` and records substantive query events via `analytics.safe_log()`. Excludes small talk, rewrite calls, and rate-limit/cooldown errors.
+    - `src/ui/state.py`: provides cached `AnalyticsStore` via `@st.cache_resource` and injects into `ChatSession`.
+  - **PART D - Demo Activity & Synthetic Seeding (`scripts/seed_demo_analytics.py`)**:
+    - Generated `data/demo_activity/seed_questions.json` and `data/demo_activity/seed_vectors.npz` (30 questions embedded in 2 batches).
+    - Validated 16 answered queries (score >= 0.65) and 14 not-found queries (score < 0.65, key terms absent).
+    - Calibrated and printed pairwise cosine similarity matrix.
+    - `AnalyticsStore.load_seed()` generates deterministic synthetic events (~136 events over 14 business days, 9:00 - 18:00 PKT, ~70% client, ~76.5% answered, `synthetic=1`) with zero API calls.
+  - **PART E - Knowledge Insights Dashboard (`src/ui/insights_page.py`, `app.py`)**:
+    - Staff-only navigation item (`:material/insights:`) positioned after Contract Analyzer; strictly omitted in Client mode.
+    - Filters: period selector (7/14/30 days) and audience selector (All/Clients/Staff).
+    - Empty state with one-click "Load Demo Activity" trigger.
+    - Four pastel stat cards: Total Queries, Answer Rate, Knowledge Gaps, and Avg Latency.
+    - Daily Query Activity stacked bar chart (Answered: `#4F46E5`, Knowledge Gaps: `#F59E0B`, Errors: `#EF4444`).
+    - Knowledge Gaps table with rank, representative topic, query count, closest match with similarity score, suggested action badges, and one-click CSV download.
+    - Most Asked Questions card and Document Utilization list with unreferenced documents.
+    - Footer expander for analytics data management (event counts, reload/clear demo activity, clear all).
+- **Files Modified / Created**:
+  - `src/config.py`
+  - `.env.example`
+  - `requirements.txt` (pinned `numpy==2.5.5`, `tzdata==2026.6`)
+  - `.gitignore` (ignored `data/analytics.db*`)
+  - `src/gemini_client.py`
+  - `src/contracts.py`
+  - `src/drafting.py`
+  - `src/memo.py`
+  - `src/vectorstore.py`
+  - `src/rag.py`
+  - `src/analytics.py`
+  - `src/ui/state.py`
+  - `src/ui/insights_page.py`
+  - `app.py`
+  - `scripts/thinking_ab.py`
+  - `scripts/check_contracts.py`
+  - `scripts/seed_demo_analytics.py`
+  - `scripts/check_analytics.py`
+  - `data/demo_activity/seed_questions.json`
+  - `data/demo_activity/seed_vectors.npz`
+  - `tests/test_reliability.py`
+  - `tests/test_memo.py`
+  - `tests/test_analytics.py`
+  - `tests/test_ui_smoke.py`
+  - `README.md`
+  - `docs/PROGRESS.md`
+- **Verification & Test Suite**:
+  - Full pytest test suite: **137 passed in 25.5s** (100% pass rate).
+  - Live verifications: `scripts/thinking_ab.py`, `scripts/check_contracts.py`, `scripts/seed_demo_analytics.py`, `scripts/check_analytics.py`, and 10s headless Streamlit execution passed.
+- **Known Limitations**:
+  - Query gap clustering merges similar topics based on vector similarity or token Jaccard distance, but semantic boundaries between overlapping practice areas (e.g. general corporate tax vs sales tax appeals) require subject-matter review before authoring new documents.
 
 
 
