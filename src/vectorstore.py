@@ -20,6 +20,7 @@ from src.config import (
     EMBED_BATCH_SLEEP_SECONDS,
     GEMINI_EMBED_MODEL,
     GEN_MAX_RETRIES,
+    TOP_K,
 )
 from src.gemini_client import (
     EmbeddingError,
@@ -142,6 +143,11 @@ def embed_texts(
     return all_embeddings
 
 
+class StoreReadOnlyError(RuntimeError):
+    """Raised when an attempt is made to mutate a read-only VectorStore."""
+    pass
+
+
 class VectorStore:
     """Manages ChromaDB persistent vector storage, indexing, and semantic search."""
 
@@ -150,11 +156,13 @@ class VectorStore:
         persist_directory: Optional[str] = None,
         collection_name: str = "docmind_collection",
         client: Optional[chromadb.ClientAPI] = None,
+        read_only: bool = False,
     ):
         self.persist_directory = persist_directory or CHROMA_DIR
         Path(self.persist_directory).mkdir(parents=True, exist_ok=True)
         self.client = client or chromadb.PersistentClient(path=self.persist_directory)
         self.collection_name = collection_name
+        self.read_only = read_only
         self.collection = self.client.get_or_create_collection(
             name=self.collection_name,
             metadata={"hnsw:space": "cosine"},
@@ -166,6 +174,8 @@ class VectorStore:
 
     def reset(self) -> None:
         """Reset and recreate the vector collection."""
+        if self.read_only:
+            raise StoreReadOnlyError("Shared sample document store is read-only in demo mode.")
         try:
             self.client.delete_collection(self.collection_name)
         except Exception:
@@ -177,6 +187,8 @@ class VectorStore:
 
     def delete_source(self, source_name: str) -> int:
         """Delete all chunks originating from a specific source file."""
+        if self.read_only:
+            raise StoreReadOnlyError("Shared sample document store is read-only in demo mode.")
         before_count = self.count()
         self.collection.delete(where={"source": source_name})
         after_count = self.count()
@@ -245,6 +257,8 @@ class VectorStore:
         Returns:
             Number of chunks updated (0 embedding calls).
         """
+        if self.read_only:
+            raise StoreReadOnlyError("Shared sample document store is read-only in demo mode.")
         res = self.collection.get(where={"source": name}, include=["metadatas"])
         if not res or not res.get("ids"):
             return 0
@@ -270,6 +284,8 @@ class VectorStore:
         Returns:
             Dict mapping source name to count of updated chunks (0 embedding calls).
         """
+        if self.read_only:
+            raise StoreReadOnlyError("Shared sample document store is read-only in demo mode.")
         if manifest is None:
             manifest_path = Path(__file__).resolve().parent.parent / "data" / "sample_docs" / "manifest.json"
             if manifest_path.exists():
@@ -307,6 +323,8 @@ class VectorStore:
         metadata_by_source: Optional[Dict[str, Dict[str, str]]] = None,
     ) -> Dict[str, Any]:
         """Index DocUnits into the vector store incrementally based on file hash."""
+        if self.read_only:
+            raise StoreReadOnlyError("Shared sample document store is read-only in demo mode.")
         report: Dict[str, Any] = {
             "indexed_files": [],
             "skipped_files": [],
@@ -423,6 +441,28 @@ class VectorStore:
             return ([], None) if return_vector else []
 
         query_vector = q_embeds[0]
+        output = self.query_by_vector(
+            query_vector=query_vector,
+            k=k,
+            allowed_visibility=allowed_visibility,
+            practice_areas=practice_areas,
+        )
+
+        if return_vector:
+            return output, query_vector
+        return output
+
+    def query_by_vector(
+        self,
+        query_vector: List[float],
+        k: int = TOP_K,
+        allowed_visibility: Optional[Union[Set[str], List[str]]] = None,
+        practice_areas: Optional[List[str]] = None,
+    ) -> List[Dict[str, Any]]:
+        """Query vector store directly with precomputed query vector (0 embedding API calls)."""
+        if self.count() == 0 or not query_vector:
+            return []
+
         n_results = min(k, self.count())
 
         # Construct ChromaDB where filter
@@ -460,7 +500,7 @@ class VectorStore:
         distances = results.get("distances", [[]])[0]
 
         for doc_text, meta, dist in zip(docs, metas, distances):
-            score = round(max(0.0, min(1.0, 1.0 - float(dist))), 4)
+            score = max(0.0, min(1.0, 1.0 - float(dist)))
             page_val = meta.get("page")
             page_clean = int(page_val) if page_val and page_val > 0 else None
             section_clean = meta.get("section") or None
@@ -476,9 +516,7 @@ class VectorStore:
                 "practice_area": meta.get("practice_area", "General"),
             })
 
-        if return_vector:
-            return output, query_vector
-        return output
+        return sorted(output, key=lambda x: x["score"], reverse=True)
 
     def get_source_units(
         self,

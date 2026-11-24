@@ -1,6 +1,6 @@
 # DocMind Evaluation Benchmark: Results & Analysis
 
-**Date**: 2026-11-24 13:48:23 UTC  
+**Date**: 2026-11-24 14:25:43 UTC  
 **Dataset**: 8 Documents, 97 Chunks (`data/sample_docs/`)  
 **Benchmark Size**: 38 Questions across 6 Distinct Categories  
 **Overall Accuracy**: **100.0%** (38/38)  
@@ -22,33 +22,52 @@
 
 ---
 
-## 2. Retrieval Score Threshold Sensitivity Sweep (0.55 – 0.75)
+## 2. Gate-Only Threshold Sensitivity Sweep (0.55 – 0.75)
 
-The table below analyzes overall benchmark accuracy across score thresholds from 0.55 to 0.75 in 0.01 increments. Simulated offline from the retrieved scores of the evaluation benchmark run:
+*Note: measured on the same set used during development.*
 
-| Threshold | Simulated Pass Rate | Total Passed | Total Failed | Retrieval Gated Questions |
+This table evaluates the retrieval score gate in isolation as a binary classifier across 35 single-turn items (18 answerable, 17 unanswerable; multi-turn conversations excluded) for thresholds from 0.55 to 0.75 in 0.01 increments:
+
+| Threshold | Wrongly Gated Answerable (top < t) | Passing Unanswerable (top >= t) | Total Gate Errors | Gate Accuracy |
 | :---: | :---: | :---: | :---: | :---: |
-| **0.55** | **55.3%** | 21/38 | 17/38 | 0 |
-| **0.56** | **57.9%** | 22/38 | 16/38 | 0 |
-| **0.57** | **60.5%** | 23/38 | 15/38 | 0 |
-| **0.58** | **60.5%** | 23/38 | 15/38 | 0 |
-| **0.59** | **60.5%** | 23/38 | 15/38 | 0 |
-| **0.60** | **63.2%** | 24/38 | 14/38 | 0 |
-| **0.61** | **68.4%** | 26/38 | 12/38 | 0 |
-| **0.62** | **68.4%** | 26/38 | 12/38 | 0 |
-| **0.63** | **73.7%** | 28/38 | 10/38 | 0 |
-| **0.64** | **78.9%** | 30/38 | 8/38 | 0 |
-| **0.65** (Default) | **78.9%** | 30/38 | 8/38 | 0 |
-| **0.66** | **86.8%** | 33/38 | 5/38 | 0 |
-| **0.67** | **89.5%** | 34/38 | 4/38 | 0 |
-| **0.68** | **89.5%** | 34/38 | 4/38 | 0 |
-| **0.69** | **89.5%** | 34/38 | 4/38 | 0 |
-| **0.70** | **92.1%** | 35/38 | 3/38 | 0 |
-| **0.71** | **92.1%** | 35/38 | 3/38 | 2 |
-| **0.72** | **92.1%** | 35/38 | 3/38 | 2 |
-| **0.73** | **92.1%** | 35/38 | 3/38 | 3 |
-| **0.74** | **92.1%** | 35/38 | 3/38 | 3 |
-| **0.75** | **92.1%** | 35/38 | 3/38 | 3 |
+| **0.55** | 0/18 | 17/17 | 17/35 | **51.4%** |
+| **0.56** | 0/18 | 16/17 | 16/35 | **54.3%** |
+| **0.57** | 0/18 | 15/17 | 15/35 | **57.1%** |
+| **0.58** | 0/18 | 15/17 | 15/35 | **57.1%** |
+| **0.59** | 0/18 | 15/17 | 15/35 | **57.1%** |
+| **0.60** | 0/18 | 14/17 | 14/35 | **60.0%** |
+| **0.61** | 0/18 | 12/17 | 12/35 | **65.7%** |
+| **0.62** | 0/18 | 12/17 | 12/35 | **65.7%** |
+| **0.63** | 0/18 | 10/17 | 10/35 | **71.4%** |
+| **0.64** | 0/18 | 8/17 | 8/35 | **77.1%** |
+| **0.65** (Default) | 0/18 | 8/17 | 8/35 | **77.1%** |
+| **0.66** | 0/18 | 5/17 | 5/35 | **85.7%** |
+| **0.67** | 0/18 | 4/17 | 4/35 | **88.6%** |
+| **0.68** | 0/18 | 4/17 | 4/35 | **88.6%** |
+| **0.69** | 0/18 | 4/17 | 4/35 | **88.6%** |
+| **0.70** | 0/18 | 3/17 | 3/35 | **91.4%** |
+| **0.71** | 2/18 | 1/17 | 3/35 | **91.4%** |
+| **0.72** | 2/18 | 1/17 | 3/35 | **91.4%** |
+| **0.73** | 3/18 | 0/17 | 3/35 | **91.4%** |
+| **0.74** | 3/18 | 0/17 | 3/35 | **91.4%** |
+| **0.75** | 3/18 | 0/17 | 3/35 | **91.4%** |
+
+### Score Boundary & Margin Analysis
+
+- **Lowest `top_score` among answerable items**: `c_fact_11` = **0.7003** (*"What is the maximum cash payment accepted by the firm before bank transfer is mandatory?"*)
+- **Highest `top_score` among unanswerable items**: `c_notfound_02` = **0.7230** (*"Can clients pay legal fees using digital wallets such as JazzCash or Nayapay?"*)
+- **Separation Margin**: `0.7003 - 0.7230` = **-0.0227** (overlap between unanswerable query embedding and corpus text).
+- **Items within 0.02 of Default Threshold 0.65 (`[0.6300 - 0.6700]`)**:
+  - `c_access_02`: `0.6547` (access_control, client mode: Northgate retainer fee)
+  - `c_access_03`: `0.6315` (access_control, client mode: Tier 1 escalation window)
+  - `c_access_05`: `0.6679` (access_control, client mode: Emergency escalation email)
+  - `c_notfound_01`: `0.6538` (not_in_docs, client mode: Visitor parking availability)
+  - `c_notfound_03`: `0.6526` (not_in_docs, client mode: Overseas branch locations)
+  - `s_notfound_01`: `0.6367` (not_in_docs, staff mode: High Court advocate dress code)
+
+### Architectural Note: Prior Sweep Table Explanation
+
+The previous sweep table simulated end-to-end pass rate by penalizing unanswerable questions whenever `top_score >= threshold`, yielding an apparent 78.9% rate at 0.65 despite 100% of queries passing in the real run. That confounded the retrieval gate with the LLM generation layer. When an unanswerable question passes retrieval (e.g., `c_notfound_02` at 0.7230), the LLM inspects the retrieved context, confirms the subject is not mentioned, and correctly outputs `"I couldn't find this in the uploaded documents"` (`found: false`). DocMind's **Dual Anti-Hallucination Guardrails** combine both layers: the retrieval gate filters low-relevance queries early, while the structured LLM verification catches semantic absences.
 
 ---
 

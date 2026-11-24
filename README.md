@@ -47,6 +47,11 @@ DocMind is configured with a fictional law firm demo dataset (**Sterling & Rauf 
 - **Reliability & Early Failover**: Single observable retry layer with bounded latency, exponential backoff with jitter, hard total time budget (60s), and SDK internal retries disabled (`HttpRetryOptions(attempts=1)`). Bounded primary phase (`GEN_PRIMARY_ATTEMPTS=2`, <= 30s) automatically triggers early failover to `GEMINI_FALLBACK_MODEL` (`gemini-3.8-flash`) upon transient 503 or timeout errors.
 - **In-Process Answer Caching**: Fast TTL caching (30 minutes) keyed by query and vector store fingerprint; cached responses return instantly (0.0 ms, 0 API calls) and invalidate automatically when documents change.
 - **Public Demo Quota Guards**: Session-level cooldown (3.0s between questions) and ceiling (40 questions/session), plus pre-upload chunk estimation guards (300 chunks/batch, 1,500 total chunks) to prevent quota exhaustion.
+- **Public Demo Mode & Zero-API Shared Index**:
+  - **Instant Zero-API Startup**: Pre-indexed sample corpus (`data/demo_index/` with 97 chunks and precomputed float32 vectors) imported in milliseconds on initial launch with **0 Gemini API calls**.
+  - **Session-Private In-Memory Uploads**: Users can upload their own `.pdf`, `.docx`, or `.txt` documents to query alongside the firm knowledge base. Uploads live exclusively in ephemeral in-memory Chroma collections isolated by browser session UUID, protected by per-session caps (3 files, 120 chunks, 5 MB/file) and automatic 2-hour TTL cleanup.
+  - **Daily Quota Budget Guards**: SQLite-backed budget tracker enforcing daily demo limits (200 questions/day, 150 upload embedding chunks/day on Pacific time calendar) with friendly error handling before any API calls are made.
+  - **Read-Only Core Protection & Privacy Masking**: In demo mode, the shared sample corpus is completely immutable (`StoreReadOnlyError`), destructive UI controls are hidden, and session upload filenames are automatically masked to `[uploaded document]` in analytics telemetry.
 - **Modern Streamlit UI**: Clean dashboard theme featuring a near-black sidebar (`#0F1117`) with workspace navigation pills and live corpus stats, light grey workspace (`#F5F6F8`), white rounded cards, pastel stat cards, responsive chat interface with starter questions, expandable source previews with relevance percentage chips, and document management with multi-file upload.
 - **Privacy & Safety**: Automatic redaction prevents API keys or stack traces from leaking to client UI or application logs. Embedded telemetry database uses PII redaction and stores embedding vectors only for not-found events.
 
@@ -228,11 +233,13 @@ Comprehensive report with retrieval score sensitivity sweep (0.55 – 0.75): [`e
 
 ## Running Tests
 
-Run the offline pytest test suite (147 tests, 0 real API calls):
+Run the offline pytest test suite (160 tests, 0 real API calls):
 
 ```bash
 python -m pytest
 ```
+
+Non-loopback socket network connections are automatically blocked during testing via an autouse fixture to guarantee complete offline execution.
 
 ---
 

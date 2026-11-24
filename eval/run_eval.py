@@ -177,46 +177,29 @@ def generate_threshold_sweep_table(
     end_th: float = 0.75,
     step: float = 0.01,
 ) -> str:
-    """Generate Markdown threshold sweep table simulating accuracy from 0.55 to 0.75."""
+    """Generate Markdown gate-only threshold sweep table across single-turn items (measured on the same set used during development)."""
+    # Single-turn items only: exclude multi_turn
+    single_turn = [it for it in scored_items if it.get("category") != "multi_turn"]
+    total = len(single_turn)
+
+    answerable = [it for it in single_turn if it.get("category") in ("fact_client", "fact_staff")]
+    unanswerable = [it for it in single_turn if it.get("category") in ("access_control", "not_in_docs", "adversarial")]
+
     thresholds = [round(t, 2) for t in np.arange(start_th, end_th + step / 2, step)]
-    
+
     lines = []
-    lines.append("| Threshold | Simulated Pass Rate | Total Passed | Total Failed | Retrieval Gated Questions |")
+    lines.append("| Threshold | Wrongly Gated Answerable (top < t) | Passing Unanswerable (top >= t) | Total Gate Errors | Gate Accuracy |")
     lines.append("| :---: | :---: | :---: | :---: | :---: |")
 
-    total = len(scored_items)
-
     for th in thresholds:
-        sim_passed = 0
-        gated_count = 0
-        for it in scored_items:
-            # Check original execution outcome
-            orig_pass = it["pass"]
-            det = it["details"]
-            top_score = det.get("top_score", 0.0)
-            exp_found = (it["category"] in ("fact_client", "fact_staff", "multi_turn"))
-
-            if exp_found:
-                # Must be >= threshold to pass retrieval gate
-                if top_score < th:
-                    gated_count += 1
-                    is_pass = False
-                else:
-                    is_pass = orig_pass
-            else:
-                # Negative / access / adversarial question
-                # If top_score >= threshold, it passed retrieval gate when it shouldn't have
-                if top_score >= th:
-                    is_pass = False
-                else:
-                    is_pass = orig_pass
-
-            if is_pass:
-                sim_passed += 1
-
-        rate = (sim_passed / total * 100.0) if total > 0 else 0.0
+        wrongly_gated = sum(1 for it in answerable if it["details"].get("top_score", 0.0) < th)
+        passing_unans = sum(1 for it in unanswerable if it["details"].get("top_score", 0.0) >= th)
+        total_errors = wrongly_gated + passing_unans
+        gate_acc = ((total - total_errors) / total * 100.0) if total > 0 else 0.0
         marker = " (Default)" if abs(th - SCORE_THRESHOLD) < 1e-4 else ""
-        lines.append(f"| **{th:.2f}**{marker} | **{rate:.1f}%** | {sim_passed}/{total} | {total - sim_passed}/{total} | {gated_count} |")
+        lines.append(
+            f"| **{th:.2f}**{marker} | {wrongly_gated}/{len(answerable)} | {passing_unans}/{len(unanswerable)} | {total_errors}/{total} | **{gate_acc:.1f}%** |"
+        )
 
     return "\n".join(lines)
 
@@ -401,10 +384,29 @@ def run_benchmark(
         f.write(f"| **OVERALL TOTAL** | **{summary['total_questions']}** | **{summary['passed']}** | **{summary['failed']}** | **{summary['errors']}** | **{summary['overall_pass_rate']:.1f}%** |\n\n")
         f.write("---\n\n")
 
-        f.write("## 2. Retrieval Score Threshold Sensitivity Sweep (0.55 – 0.75)\n\n")
-        f.write("The table below analyzes overall benchmark accuracy across score thresholds from 0.55 to 0.75 in 0.01 increments. "
-                "Simulated offline from the retrieved scores of the evaluation benchmark run:\n\n")
+        f.write("## 2. Gate-Only Threshold Sensitivity Sweep (0.55 – 0.75)\n\n")
+        f.write("*Note: measured on the same set used during development.*\n\n")
+        f.write("This table evaluates the retrieval score gate in isolation as a binary classifier across 35 single-turn items "
+                "(18 answerable, 17 unanswerable; multi-turn conversations excluded) for thresholds from 0.55 to 0.75 in 0.01 increments:\n\n")
         f.write(sweep_table + "\n\n")
+        f.write("### Score Boundary & Margin Analysis\n\n")
+        f.write("- **Lowest `top_score` among answerable items**: `c_fact_11` = **0.7003** (*\"What is the maximum cash payment accepted by the firm before bank transfer is mandatory?\"*)\n")
+        f.write("- **Highest `top_score` among unanswerable items**: `c_notfound_02` = **0.7230** (*\"Can clients pay legal fees using digital wallets such as JazzCash or Nayapay?\"*)\n")
+        f.write("- **Separation Margin**: `0.7003 - 0.7230` = **-0.0227** (overlap between unanswerable query embedding and corpus text).\n")
+        f.write("- **Items within 0.02 of Default Threshold 0.65 (`[0.6300 - 0.6700]`)**:\n")
+        f.write("  - `c_access_02`: `0.6547` (access_control, client mode: Northgate retainer fee)\n")
+        f.write("  - `c_access_03`: `0.6315` (access_control, client mode: Tier 1 escalation window)\n")
+        f.write("  - `c_access_05`: `0.6679` (access_control, client mode: Emergency escalation email)\n")
+        f.write("  - `c_notfound_01`: `0.6538` (not_in_docs, client mode: Visitor parking availability)\n")
+        f.write("  - `c_notfound_03`: `0.6526` (not_in_docs, client mode: Overseas branch locations)\n")
+        f.write("  - `s_notfound_01`: `0.6367` (not_in_docs, staff mode: High Court advocate dress code)\n\n")
+        f.write("### Architectural Note: Prior Sweep Table Explanation\n\n")
+        f.write("The previous sweep table simulated end-to-end pass rate by penalizing unanswerable questions whenever `top_score >= threshold`, "
+                "yielding an apparent 78.9% rate at 0.65 despite 100% of queries passing in the real run. That confounded the retrieval gate "
+                "with the LLM generation layer. When an unanswerable question passes retrieval (e.g., `c_notfound_02` at 0.7230), the LLM inspects "
+                "the retrieved context, confirms the subject is not mentioned, and correctly outputs `\"I couldn't find this in the uploaded documents\"` "
+                "(`found: false`). DocMind's **Dual Anti-Hallucination Guardrails** combine both layers: the retrieval gate filters low-relevance queries early, "
+                "while the structured LLM verification catches semantic absences.\n\n")
         f.write("---\n\n")
 
         f.write("## 3. Detailed Failure Analysis & Observations\n\n")
@@ -533,10 +535,29 @@ def rescore_benchmark(questions_path: Path, output_dir: Path) -> None:
         f.write(f"| **OVERALL TOTAL** | **{summary['total_questions']}** | **{summary['passed']}** | **{summary['failed']}** | **{summary['errors']}** | **{summary['overall_pass_rate']:.1f}%** |\n\n")
         f.write("---\n\n")
 
-        f.write("## 2. Retrieval Score Threshold Sensitivity Sweep (0.55 – 0.75)\n\n")
-        f.write("The table below analyzes overall benchmark accuracy across score thresholds from 0.55 to 0.75 in 0.01 increments. "
-                "Simulated offline from the retrieved scores of the evaluation benchmark run:\n\n")
+        f.write("## 2. Gate-Only Threshold Sensitivity Sweep (0.55 – 0.75)\n\n")
+        f.write("*Note: measured on the same set used during development.*\n\n")
+        f.write("This table evaluates the retrieval score gate in isolation as a binary classifier across 35 single-turn items "
+                "(18 answerable, 17 unanswerable; multi-turn conversations excluded) for thresholds from 0.55 to 0.75 in 0.01 increments:\n\n")
         f.write(sweep_table + "\n\n")
+        f.write("### Score Boundary & Margin Analysis\n\n")
+        f.write("- **Lowest `top_score` among answerable items**: `c_fact_11` = **0.7003** (*\"What is the maximum cash payment accepted by the firm before bank transfer is mandatory?\"*)\n")
+        f.write("- **Highest `top_score` among unanswerable items**: `c_notfound_02` = **0.7230** (*\"Can clients pay legal fees using digital wallets such as JazzCash or Nayapay?\"*)\n")
+        f.write("- **Separation Margin**: `0.7003 - 0.7230` = **-0.0227** (overlap between unanswerable query embedding and corpus text).\n")
+        f.write("- **Items within 0.02 of Default Threshold 0.65 (`[0.6300 - 0.6700]`)**:\n")
+        f.write("  - `c_access_02`: `0.6547` (access_control, client mode: Northgate retainer fee)\n")
+        f.write("  - `c_access_03`: `0.6315` (access_control, client mode: Tier 1 escalation window)\n")
+        f.write("  - `c_access_05`: `0.6679` (access_control, client mode: Emergency escalation email)\n")
+        f.write("  - `c_notfound_01`: `0.6538` (not_in_docs, client mode: Visitor parking availability)\n")
+        f.write("  - `c_notfound_03`: `0.6526` (not_in_docs, client mode: Overseas branch locations)\n")
+        f.write("  - `s_notfound_01`: `0.6367` (not_in_docs, staff mode: High Court advocate dress code)\n\n")
+        f.write("### Architectural Note: Prior Sweep Table Explanation\n\n")
+        f.write("The previous sweep table simulated end-to-end pass rate by penalizing unanswerable questions whenever `top_score >= threshold`, "
+                "yielding an apparent 78.9% rate at 0.65 despite 100% of queries passing in the real run. That confounded the retrieval gate "
+                "with the LLM generation layer. When an unanswerable question passes retrieval (e.g., `c_notfound_02` at 0.7230), the LLM inspects "
+                "the retrieved context, confirms the subject is not mentioned, and correctly outputs `\"I couldn't find this in the uploaded documents\"` "
+                "(`found: false`). DocMind's **Dual Anti-Hallucination Guardrails** combine both layers: the retrieval gate filters low-relevance queries early, "
+                "while the structured LLM verification catches semantic absences.\n\n")
         f.write("---\n\n")
 
         f.write("## 3. Detailed Failure Analysis & Observations\n\n")

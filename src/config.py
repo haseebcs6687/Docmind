@@ -77,6 +77,17 @@ ANSWER_CACHE_TTL_SECONDS: int = int(os.getenv("ANSWER_CACHE_TTL_SECONDS", "1800"
 MAX_CHUNKS_PER_UPLOAD_BATCH: int = int(os.getenv("MAX_CHUNKS_PER_UPLOAD_BATCH", "300"))
 MAX_TOTAL_CHUNKS: int = int(os.getenv("MAX_TOTAL_CHUNKS", "1500"))
 
+# Demo Mode & Session Upload Settings
+DEMO_MODE: bool = os.getenv("DEMO_MODE", "false").lower() in ("true", "1", "yes")
+DEMO_MAX_UPLOAD_FILES_PER_SESSION: int = int(os.getenv("DEMO_MAX_UPLOAD_FILES_PER_SESSION", "3"))
+DEMO_MAX_CHUNKS_PER_SESSION: int = int(os.getenv("DEMO_MAX_CHUNKS_PER_SESSION", "120"))
+DEMO_MAX_TOTAL_SESSION_CHUNKS: int = int(os.getenv("DEMO_MAX_TOTAL_SESSION_CHUNKS", "3000"))
+DEMO_MAX_UPLOAD_MB: int = int(os.getenv("DEMO_MAX_UPLOAD_MB", "5"))
+SESSION_DOC_TTL_MINUTES: int = int(os.getenv("SESSION_DOC_TTL_MINUTES", "120"))
+DEMO_DAILY_QUESTION_BUDGET: int = int(os.getenv("DEMO_DAILY_QUESTION_BUDGET", "200"))
+DEMO_DAILY_UPLOAD_EMBED_BUDGET: int = int(os.getenv("DEMO_DAILY_UPLOAD_EMBED_BUDGET", "150"))
+DEMO_QUOTA_TZ: str = os.getenv("DEMO_QUOTA_TZ", "America/Los_Angeles")
+
 
 def get_gemini_api_key() -> str:
     """Retrieve the Gemini API key from environment variables.

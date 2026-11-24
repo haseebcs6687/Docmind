@@ -4,20 +4,32 @@ import hashlib
 import json
 import logging
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, List, Set
 import streamlit as st
 
 from src.chunking import chunk_units
 from src.config import (
     ACCESS_MODES,
     DEFAULT_UPLOAD_VISIBILITY,
+    DEMO_DAILY_UPLOAD_EMBED_BUDGET,
+    DEMO_MAX_CHUNKS_PER_SESSION,
+    DEMO_MAX_TOTAL_SESSION_CHUNKS,
+    DEMO_MAX_UPLOAD_FILES_PER_SESSION,
+    DEMO_MAX_UPLOAD_MB,
+    DEMO_MODE,
     MAX_CHUNKS_PER_UPLOAD_BATCH,
     MAX_TOTAL_CHUNKS,
     MAX_UPLOAD_MB,
     PRACTICE_AREAS,
 )
+from src.demo_limits import check_and_count_upload_embed, get_daily_usage
 from src.gemini_client import ErrorCategory, classify_error
 from src.loaders import load_directory, load_file
+from src.session_store import (
+    SessionQuotaExceededError,
+    get_global_session_chunks,
+    resolve_name_collision,
+)
 from src.ui.components import (
     demo_callout_card,
     file_type_chip,
@@ -113,6 +125,255 @@ def render_documents_page(role: str = "Staff") -> None:
         unsafe_allow_html=True,
     )
 
+    if DEMO_MODE:
+        # -------------------------------------------------------------
+        # DEMO MODE UI: Read-only Sample Docs + Session-Private Uploads
+        # -------------------------------------------------------------
+        sample_sources = [s for s in sources if s.get("origin") != "yours"]
+        session_sources = [s for s in sources if s.get("origin") == "yours"]
+        usage = get_daily_usage()
+
+        # Card 1: Sample Documents (Read-Only)
+        with st.container(border=True):
+            st.subheader("Sample Law Firm Documents")
+            st.caption(
+                "Pre-loaded fictional law firm documents covering fee schedules, practice areas, "
+                "engagement letters, FAQs, dispute resolution policies, and conflict of interest SOPs. "
+                "The sample corpus is read-only in public demo mode."
+            )
+
+            if not sample_sources:
+                st.write("No sample documents available.")
+            else:
+                h1, h2, h3, h4, h5 = st.columns([4, 1.5, 2, 2, 2.5])
+                h1.markdown("**Document Name**")
+                h2.markdown("**Format**")
+                h3.markdown("**Practice Area**")
+                h4.markdown("**Visibility**")
+                h5.markdown("**Status**")
+
+                for s in sample_sources:
+                    s_name = s["name"]
+                    s_chunks = s["chunk_count"]
+                    s_type = s.get("file_type") or "DOC"
+                    s_vis = s.get("visibility") or "staff"
+                    s_pa = s.get("practice_area") or "General"
+
+                    c1, c2, c3, c4, c5 = st.columns([4, 1.5, 2, 2, 2.5])
+                    c1.write(f"📄 {s_name}")
+                    c2.markdown(file_type_chip(s_type), unsafe_allow_html=True)
+                    c3.write(s_pa)
+                    vis_badge = "Staff only" if s_vis == "staff" else "Client"
+                    vis_cls = "type-chip-staff" if s_vis == "staff" else "type-chip-client"
+                    c4.markdown(f'<span class="{vis_cls}">{vis_badge}</span>', unsafe_allow_html=True)
+                    c5.write(f"{s_chunks} chunks &nbsp;•&nbsp; <span style='color: #6B7280; font-size: 0.8rem;'>Sample (Read-only)</span>", unsafe_allow_html=True)
+
+        # Card 2: Your Documents (Session-Private)
+        with st.container(border=True):
+            st.subheader("Your Documents (Session-Private)")
+            st.write(
+                "Upload private documents to query alongside the firm knowledge base. "
+                "Uploaded documents are stored in memory for this browser session only, isolated from other users, "
+                "and automatically cleaned up when the session expires."
+            )
+
+            # Quota metrics display
+            curr_sess_chunks = sum(s["chunk_count"] for s in session_sources)
+            m1, m2, m3, m4 = st.columns(4)
+            m1.metric("Session Files", f"{len(session_sources)} / {DEMO_MAX_UPLOAD_FILES_PER_SESSION}")
+            m2.metric("Session Chunks", f"{curr_sess_chunks} / {DEMO_MAX_CHUNKS_PER_SESSION}")
+            m3.metric("Max File Size", f"{DEMO_MAX_UPLOAD_MB} MB")
+            m4.metric("Daily Upload Embeds", f"{usage['upload_embed_chunks']} / {DEMO_DAILY_UPLOAD_EMBED_BUDGET}")
+
+            st.markdown("<div style='margin-top: 0.5rem;'></div>", unsafe_allow_html=True)
+            col_u1, col_u2 = st.columns(2)
+            with col_u1:
+                upload_vis = st.selectbox(
+                    "Document Visibility",
+                    options=list(ACCESS_MODES),
+                    index=list(ACCESS_MODES).index(DEFAULT_UPLOAD_VISIBILITY),
+                    key="demo_upload_vis_select",
+                    help="Choose whether uploaded documents are staff-only or accessible to clients.",
+                )
+            with col_u2:
+                upload_pa = st.selectbox(
+                    "Practice Area",
+                    options=list(PRACTICE_AREAS),
+                    index=0,
+                    key="demo_upload_pa_select",
+                    help="Assign a practice area classification.",
+                )
+
+            uploaded_files = st.file_uploader(
+                "Choose files to upload (PDF, DOCX, TXT)",
+                type=["pdf", "docx", "txt"],
+                accept_multiple_files=True,
+                key="demo_file_uploader",
+            )
+
+            if uploaded_files:
+                if len(session_sources) + len(uploaded_files) > DEMO_MAX_UPLOAD_FILES_PER_SESSION:
+                    st.error(
+                        f"Session limit exceeded: maximum {DEMO_MAX_UPLOAD_FILES_PER_SESSION} files per session "
+                        f"(current: {len(session_sources)}, uploading: {len(uploaded_files)})."
+                    )
+                else:
+                    if st.button("Index uploaded documents", type="primary", key="demo_index_btn"):
+                        with st.status("Validating and indexing private session documents...", expanded=True) as status_box:
+                            max_bytes = DEMO_MAX_UPLOAD_MB * 1024 * 1024
+                            parsed_batch = []
+                            total_estimated_chunks = 0
+                            validation_failed = False
+
+                            existing_source_names = {s["name"] for s in sources}
+
+                            for uf in uploaded_files:
+                                orig_name = uf.name
+                                file_bytes = uf.getvalue()
+                                if len(file_bytes) > max_bytes:
+                                    st.write(f"⚠️ `{orig_name}`: Exceeds {DEMO_MAX_UPLOAD_MB} MB limit. Skipped.")
+                                    continue
+
+                                try:
+                                    resolved_name = resolve_name_collision(orig_name, existing_source_names)
+                                    existing_source_names.add(resolved_name)
+                                    units = load_file(file_bytes, filename=resolved_name)
+                                    if not units:
+                                        st.write(f"⚠️ `{orig_name}`: No readable text extracted. Skipped.")
+                                        continue
+                                    for u in units:
+                                        u.source = resolved_name
+                                    ch = chunk_units(units)
+                                    parsed_batch.append((resolved_name, file_bytes, units, len(ch)))
+                                    total_estimated_chunks += len(ch)
+                                except Exception as e:
+                                    logger.error("Failed parsing '%s': %s", orig_name, type(e).__name__)
+                                    st.write(f"❌ `{orig_name}`: Failed to parse file ({type(e).__name__}).")
+
+                            if curr_sess_chunks + total_estimated_chunks > DEMO_MAX_CHUNKS_PER_SESSION:
+                                st.error(
+                                    f"Upload exceeds session chunk limit of {DEMO_MAX_CHUNKS_PER_SESSION} chunks "
+                                    f"(current: {curr_sess_chunks}, new: {total_estimated_chunks})."
+                                )
+                                validation_failed = True
+                            elif get_global_session_chunks() + total_estimated_chunks > DEMO_MAX_TOTAL_SESSION_CHUNKS:
+                                st.error(
+                                    f"Global demo capacity reached ({DEMO_MAX_TOTAL_SESSION_CHUNKS} total chunks). Please try again later."
+                                )
+                                validation_failed = True
+                            else:
+                                budget_ok, budget_msg = check_and_count_upload_embed(total_estimated_chunks)
+                                if not budget_ok:
+                                    st.error(budget_msg)
+                                    validation_failed = True
+
+                            if validation_failed:
+                                status_box.update(label="Upload aborted: limits exceeded.", state="error", expanded=True)
+                            else:
+                                total_chunks_added = 0
+                                indexed_count = 0
+                                quota_exhausted = False
+
+                                for resolved_name, file_bytes, units, _ in parsed_batch:
+                                    try:
+                                        f_hash = hashlib.sha256(file_bytes).hexdigest()
+                                        rep = store.index_units(
+                                            units,
+                                            {resolved_name: f_hash},
+                                            metadata_by_source={
+                                                resolved_name: {
+                                                    "visibility": upload_vis,
+                                                    "practice_area": upload_pa,
+                                                }
+                                            },
+                                            file_bytes_by_source={resolved_name: len(file_bytes)},
+                                        )
+                                        added = rep.get("total_chunks_added", 0)
+                                        total_chunks_added += added
+                                        indexed_count += 1
+                                        st.write(f"✅ `{resolved_name}`: Indexed ({added} chunks).")
+                                    except Exception as exc:
+                                        cat = classify_error(exc)
+                                        logger.error("Failed indexing '%s': %s (%s)", resolved_name, type(exc).__name__, cat)
+                                        if cat in (ErrorCategory.QUOTA_DAILY, ErrorCategory.RATE_LIMIT_MINUTE):
+                                            st.error("Embedding quota reached; remaining files were not indexed.")
+                                            quota_exhausted = True
+                                            break
+                                        else:
+                                            st.write(f"❌ `{resolved_name}`: Error indexing ({type(exc).__name__}).")
+
+                                final_state = "error" if quota_exhausted else "complete"
+                                status_box.update(
+                                    label=f"Completed: Indexed {indexed_count} file(s) ({total_chunks_added} chunks).",
+                                    state=final_state,
+                                    expanded=False,
+                                )
+                                st.rerun()
+
+            # Table of session-uploaded documents
+            st.markdown("<div style='margin-top: 1.5rem;'></div>", unsafe_allow_html=True)
+            st.markdown("#### Private Documents in This Session")
+            if not session_sources:
+                st.info("No private documents uploaded in this session. Documents you upload above will appear here.")
+            else:
+                h1, h2, h3, h4, h5, h6 = st.columns([4, 1.5, 2, 1.5, 1.5, 1.5])
+                h1.markdown("**Document Name**")
+                h2.markdown("**Format**")
+                h3.markdown("**Practice Area**")
+                h4.markdown("**Visibility**")
+                h5.markdown("**Chunks**")
+                h6.markdown("**Actions**")
+
+                for s in session_sources:
+                    s_name = s["name"]
+                    s_chunks = s["chunk_count"]
+                    s_type = s.get("file_type") or "DOC"
+                    s_vis = s.get("visibility") or "staff"
+                    s_pa = s.get("practice_area") or "General"
+
+                    c1, c2, c3, c4, c5, c6 = st.columns([4, 1.5, 2, 1.5, 1.5, 1.5])
+                    c1.write(f"📄 {s_name}")
+                    c2.markdown(file_type_chip(s_type), unsafe_allow_html=True)
+                    c3.write(s_pa)
+                    vis_badge = "Staff only" if s_vis == "staff" else "Client"
+                    vis_cls = "type-chip-staff" if s_vis == "staff" else "type-chip-client"
+                    c4.markdown(f'<span class="{vis_cls}">{vis_badge}</span>', unsafe_allow_html=True)
+                    c5.write(f"{s_chunks} chunks")
+
+                    with c6:
+                        with st.popover("Edit"):
+                            st.markdown(f"**Edit `{s_name}`**")
+                            cur_vis = s.get("visibility", "staff")
+                            cur_pa = s.get("practice_area", "General")
+                            vis_idx = list(ACCESS_MODES).index(cur_vis) if cur_vis in ACCESS_MODES else 0
+                            pa_idx = list(PRACTICE_AREAS).index(cur_pa) if cur_pa in PRACTICE_AREAS else 0
+
+                            new_vis = st.selectbox(
+                                "Visibility",
+                                options=list(ACCESS_MODES),
+                                index=vis_idx,
+                                key=f"demo_edit_vis_{s_name}",
+                            )
+                            new_pa = st.selectbox(
+                                "Practice Area",
+                                options=list(PRACTICE_AREAS),
+                                index=pa_idx,
+                                key=f"demo_edit_pa_{s_name}",
+                            )
+                            if st.button("Save", key=f"demo_save_meta_{s_name}", type="primary"):
+                                store.set_source_metadata(s_name, new_vis, new_pa)
+                                st.success("Metadata updated.")
+                                st.rerun()
+
+                        if st.button("Delete", key=f"demo_del_{s_name}", type="secondary"):
+                            deleted_chunks = store.delete_source(s_name)
+                            st.success(f"Deleted '{s_name}' ({deleted_chunks} chunks removed).")
+                            st.rerun()
+        return
+
+    # -------------------------------------------------------------
+    # STANDARD MODE UI: Full corpus management, reload, and delete-all
+    # -------------------------------------------------------------
     # Sample Documents Section
     with st.container(border=True):
         st.subheader("Sample Law Firm Documents")

@@ -171,6 +171,37 @@ def test_threshold_sweep_table_generation():
         },
     ]
     table = generate_threshold_sweep_table(scored, start_th=0.60, end_th=0.70, step=0.05)
-    assert "| Threshold | Simulated Pass Rate |" in table
+    assert "| Threshold | Wrongly Gated Answerable (top < t) |" in table
     assert "0.65" in table
     assert "(Default)" in table
+
+
+def test_gate_uses_raw_unrounded_score():
+    """Verify that retrieval gate uses raw float score without rounding 0.64999 up to 0.6500."""
+    from src.rag import answer, NOT_FOUND
+    from tests.test_rag import MockStore
+
+    # Raw score 0.64999 would round to 0.6500 with round(..., 4)
+    raw_sub_threshold = 0.64999
+    assert round(raw_sub_threshold, 4) == 0.6500
+
+    results = [{
+        "id": "chunk_1",
+        "text": "Some text",
+        "citation": "doc.pdf, p. 1",
+        "score": raw_sub_threshold,
+    }]
+    store = MockStore(results=results)
+
+    llm_called = False
+    def mock_llm(*args, **kwargs):
+        nonlocal llm_called
+        llm_called = True
+        return "{}"
+
+    resp = answer("Test question", store=store, llm=mock_llm)
+    # Gate must compare raw score 0.64999 < 0.65 and gate it without calling LLM
+    assert not llm_called
+    assert resp.found is False
+    assert resp.answer == NOT_FOUND
+    assert resp.top_score == raw_sub_threshold

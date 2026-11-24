@@ -219,8 +219,8 @@ def call_with_retry_and_fallback(
     primary_attempts: int = GEN_PRIMARY_ATTEMPTS,
     fallback_attempts: int = GEN_FALLBACK_ATTEMPTS,
     total_budget_seconds: float = GEN_TOTAL_BUDGET_SECONDS,
-    clock: Callable[[], float] = time.time,
-    sleeper: Callable[[float], None] = time.sleep,
+    clock: Optional[Callable[[], float]] = None,
+    sleeper: Optional[Callable[[float], None]] = None,
     fn: Optional[Callable[[str], T]] = None,
     max_retries: Optional[int] = None,
 ) -> Tuple[T, str, bool]:
@@ -234,6 +234,11 @@ def call_with_retry_and_fallback(
     - Fallback attempts: bounded by fallback_attempts (default GEN_FALLBACK_ATTEMPTS = 2).
     - Non-retryable errors (QUOTA_DAILY, AUTH, BAD_REQUEST) are NEVER retried.
     """
+    if clock is None:
+        clock = time.time
+    if sleeper is None:
+        sleeper = time.sleep
+
     target_fn = call_fn if call_fn is not None else fn
     if target_fn is None:
         raise ValueError("A callable function must be provided to call_with_retry_and_fallback.")

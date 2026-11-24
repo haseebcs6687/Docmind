@@ -1,21 +1,56 @@
 """Session state and cached resource helpers for DocMind Streamlit UI."""
 
 import logging
-from typing import Any, Dict, List
+import uuid
+from typing import Any, Dict, List, Optional, Union
 import streamlit as st
 
 from src.analytics import AnalyticsStore
-from src.config import MAX_QUESTIONS_PER_SESSION, MIN_SECONDS_BETWEEN_QUESTIONS
+from src.config import (
+    DEMO_MODE,
+    MAX_QUESTIONS_PER_SESSION,
+    MIN_SECONDS_BETWEEN_QUESTIONS,
+)
 from src.rag import ChatSession
+from src.session_store import CompositeStore, SessionDocStore, get_session_store
+from src.shared_index import ensure_shared_index
 from src.vectorstore import VectorStore
 
 logger = logging.getLogger(__name__)
 
 
 @st.cache_resource
-def get_store() -> VectorStore:
+def get_shared_store() -> VectorStore:
     """Return a cached ChromaDB VectorStore instance shared across all sessions."""
-    return VectorStore()
+    store = VectorStore(read_only=DEMO_MODE)
+    if DEMO_MODE:
+        ensure_shared_index(store)
+    return store
+
+
+def get_browser_session_id() -> str:
+    """Return or initialize an isolated UUID for the current browser session."""
+    if "browser_session_id" not in st.session_state:
+        st.session_state.browser_session_id = str(uuid.uuid4())
+    return st.session_state.browser_session_id
+
+
+def get_current_session_store() -> Optional[SessionDocStore]:
+    """Return the SessionDocStore for the current browser session in demo mode."""
+    if not DEMO_MODE:
+        return None
+    sess_id = get_browser_session_id()
+    return get_session_store(sess_id)
+
+
+def get_store() -> Union[VectorStore, CompositeStore]:
+    """Return the active store facade for the current session."""
+    shared = get_shared_store()
+    if not DEMO_MODE:
+        return shared
+    sess_id = get_browser_session_id()
+    sess_store = get_session_store(sess_id)
+    return CompositeStore(shared=shared, session=sess_store)
 
 
 @st.cache_resource

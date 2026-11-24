@@ -9,6 +9,7 @@ import pandas as pd
 import streamlit as st
 
 from src.analytics import AnalyticsAccessError, gaps_to_csv
+from src.config import DEMO_MODE
 from src.ui.components import page_header, stat_card, stat_cards_grid
 from src.ui.state import get_analytics, get_store
 
@@ -308,22 +309,25 @@ def render_insights_page(role: str = "Staff") -> None:
         c_syn.metric("Synthetic Demo Queries", counts["synthetic"])
 
         st.markdown("<div style='margin-top: 1rem;'></div>", unsafe_allow_html=True)
-        b_col1, b_col2, b_col3, _ = st.columns([2, 2, 2, 4])
-        with b_col1:
-            if st.button("Reload Demo Activity", use_container_width=True):
-                try:
-                    loaded = analytics.load_seed("data/demo_activity")
-                    st.success(f"Loaded {loaded} synthetic events.")
+        if DEMO_MODE:
+            st.caption("Analytics reset and seeding controls are disabled in public demo mode.")
+        else:
+            b_col1, b_col2, b_col3, _ = st.columns([2, 2, 2, 4])
+            with b_col1:
+                if st.button("Reload Demo Activity", use_container_width=True):
+                    try:
+                        loaded = analytics.load_seed("data/demo_activity")
+                        st.success(f"Loaded {loaded} synthetic events.")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Error loading seed: {e}")
+            with b_col2:
+                if st.button("Clear Demo Activity", use_container_width=True):
+                    deleted = analytics.clear_synthetic()
+                    st.info(f"Removed {deleted} synthetic events.")
                     st.rerun()
-                except Exception as e:
-                    st.error(f"Error loading seed: {e}")
-        with b_col2:
-            if st.button("Clear Demo Activity", use_container_width=True):
-                deleted = analytics.clear_synthetic()
-                st.info(f"Removed {deleted} synthetic events.")
-                st.rerun()
-        with b_col3:
-            if st.button("Clear All Data", type="secondary", use_container_width=True):
-                analytics.clear_all()
-                st.warning("All analytics events cleared.")
-                st.rerun()
+            with b_col3:
+                if st.button("Clear All Data", type="secondary", use_container_width=True):
+                    analytics.clear_all()
+                    st.warning("All analytics events cleared.")
+                    st.rerun()
