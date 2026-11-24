@@ -1,0 +1,15 @@
+.env*
+.git
+.venv
+__pycache__
+chroma_db
+data/analytics.db*
+data/demo_limits.db*
+docs/ui-reference
+docs/screenshots
+tests
+scratch
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache

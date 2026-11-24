@@ -8,7 +8,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.config import DEMO_MODE
+from src.config import DEMO_MODE, check_storage_writable
 from src.logging_setup import configure_logging
 from src.ui.chat_page import render_chat_page
 from src.ui.components import brand_header, sidebar_status_chip
@@ -31,6 +31,15 @@ st.set_page_config(
 
 # Inject custom dashboard styles once globally
 inject_custom_theme()
+
+# Verify writable data and storage directories
+is_writable, failed_path = check_storage_writable()
+if not is_writable:
+    st.error(
+        f"⚠️ Storage Path Error: The path '{failed_path}' is not writable. "
+        "Please check filesystem permissions."
+    )
+    st.stop()
 
 # Ensure existing vector store metadata is aligned with manifest without re-embedding
 if not DEMO_MODE:

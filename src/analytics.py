@@ -28,6 +28,8 @@ from src.config import (
     ANALYTICS_ENABLED,
     ANALYTICS_MAX_EVENTS,
     ANALYTICS_RETENTION_DAYS,
+    DEMO_MODE,
+    DEMO_REAL_EVENT_RETENTION_HOURS,
     GAP_CLUSTER_COSINE,
     GAP_JACCARD,
 )
@@ -350,6 +352,26 @@ class AnalyticsStore:
 
         return (purged_age, purged_cap)
 
+    def purge_old_real_events(
+        self,
+        max_age_hours: int = DEMO_REAL_EVENT_RETENTION_HOURS,
+        now_dt: Optional[datetime] = None,
+    ) -> int:
+        """Purge non-synthetic (real) events older than max_age_hours (default 24h)."""
+        if not self.enabled:
+            return 0
+        now = now_dt or datetime.now(timezone.utc)
+        cutoff_utc = (now - timedelta(hours=max_age_hours)).isoformat()
+        with self._write_lock:
+            with self._get_connection() as conn:
+                cur = conn.execute(
+                    "DELETE FROM events WHERE synthetic = 0 AND ts_utc < ?;",
+                    (cutoff_utc,),
+                )
+                deleted = cur.rowcount
+                conn.commit()
+        return deleted
+
     def summary(
         self,
         access_mode: str,
@@ -357,6 +379,7 @@ class AnalyticsStore:
         audience: str = "all",
         known_sources: Optional[List[str]] = None,
         now_dt: Optional[datetime] = None,
+        session_id: Optional[str] = None,
     ) -> InsightsSummary:
         """Generate high-level aggregated insights for law firm staff."""
         if access_mode.lower() != "staff":
@@ -369,6 +392,11 @@ class AnalyticsStore:
             return InsightsSummary()
 
         now = now_dt or datetime.now(timezone.utc)
+
+        # In demo mode, automatically purge real events older than retention cutoff (24h)
+        if DEMO_MODE:
+            self.purge_old_real_events(max_age_hours=DEMO_REAL_EVENT_RETENTION_HOURS, now_dt=now)
+
         start_utc = (now - timedelta(days=period_days)).isoformat()
 
         query = "SELECT * FROM events WHERE ts_utc >= ?"
@@ -377,6 +405,14 @@ class AnalyticsStore:
         if audience.lower() in ("client", "staff"):
             query += " AND audience = ?"
             params.append(audience.lower())
+
+        # Privacy isolation in demo mode: only synthetic demo events + current session events
+        if DEMO_MODE:
+            if session_id:
+                query += " AND (synthetic = 1 OR session_id = ?)"
+                params.append(session_id)
+            else:
+                query += " AND synthetic = 1"
 
         query += " ORDER BY ts_utc ASC;"
 
@@ -783,22 +819,50 @@ class AnalyticsStore:
                 conn.execute("DELETE FROM events;")
                 conn.commit()
 
-    def count(self) -> Dict[str, int]:
-        """Return event counts breakdown: total, live, synthetic."""
+    def count(self, session_id: Optional[str] = None) -> Dict[str, int]:
+        """Return event counts breakdown: total, live, synthetic.
+
+        In demo mode, filters to synthetic events plus current session events.
+        """
         if not self.enabled:
             return {"total": 0, "live": 0, "synthetic": 0}
+
+        where_clause = ""
+        params: List[Any] = []
+        if DEMO_MODE:
+            if session_id:
+                where_clause = "WHERE (synthetic = 1 OR session_id = ?)"
+                params.append(session_id)
+            else:
+                where_clause = "WHERE synthetic = 1"
+
         with self._get_connection() as conn:
-            cur = conn.execute(
-                """
+            query = f"""
                 SELECT
                     count(*),
                     sum(CASE WHEN synthetic = 0 THEN 1 ELSE 0 END),
                     sum(CASE WHEN synthetic = 1 THEN 1 ELSE 0 END)
-                FROM events;
-                """
-            )
+                FROM events
+                {where_clause};
+            """
+            cur = conn.execute(query, params)
             row = cur.fetchone()
             total = row[0] or 0
             live = row[1] or 0
             synthetic = row[2] or 0
             return {"total": total, "live": live, "synthetic": synthetic}
+
+
+def ensure_demo_activity(
+    store: AnalyticsStore,
+    seed_dir: Union[str, Path] = "data/demo_activity",
+) -> bool:
+    """In demo mode at startup, if no synthetic rows exist, run load_seed (0 API calls, idempotent)."""
+    if not store.enabled:
+        return False
+    counts = store.count()
+    if counts.get("synthetic", 0) == 0:
+        loaded = store.load_seed(seed_dir=seed_dir)
+        logger.info("ensure_demo_activity populated %d synthetic demo events.", loaded)
+        return True
+    return False

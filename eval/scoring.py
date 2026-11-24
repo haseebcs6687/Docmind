@@ -58,14 +58,22 @@ def found_ok(expected_found: bool, answer: str, rag_found: Optional[bool] = None
 
 
 def facts_ok(expected_facts: List[str], answer: str) -> bool:
-    """Check whether all expected factual substrings are present in the answer text."""
+    """Check whether all expected factual substrings are present in the answer text.
+    
+    Supports alternative substrings separated by '|' (e.g., '14:00|2:00|2 pm').
+    """
     if not expected_facts:
         return True
     norm_answer = normalize(answer)
     for fact in expected_facts:
-        norm_fact = normalize(fact)
-        if norm_fact not in norm_answer:
-            return False
+        if "|" in fact:
+            alts = fact.split("|")
+            if not any(normalize(alt) in norm_answer for alt in alts):
+                return False
+        else:
+            norm_fact = normalize(fact)
+            if norm_fact not in norm_answer:
+                return False
     return True
 
 
@@ -151,6 +159,16 @@ def score_item(item: Dict[str, Any], response: Dict[str, Any]) -> Dict[str, Any]
                 "citation_ok": False,
                 "top1_ok": False,
                 "access_ok": False,
+            },
+            "details": {
+                "question": item["question"],
+                "answer": response.get("answer", f"ERROR: {response['error']}"),
+                "found": False,
+                "sources": [],
+                "top_score": 0.0,
+                "top_source": None,
+                "latency_ms": 0.0,
+                "model_used": "",
             },
         }
 

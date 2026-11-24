@@ -209,6 +209,7 @@ def run_benchmark(
     output_dir: Path,
     limit: Optional[int] = None,
     category_filter: Optional[str] = None,
+    qid_filter: Optional[str] = None,
     pause_seconds: float = 6.0,
 ) -> None:
     """Execute evaluation benchmark and produce full results."""
@@ -226,6 +227,9 @@ def run_benchmark(
 
     # Filtering
     questions = all_questions
+    if qid_filter:
+        questions = [q for q in questions if q["id"] == qid_filter]
+        print(f"Filtered to question ID '{qid_filter}': {len(questions)} items.")
     if category_filter:
         questions = [q for q in questions if q["category"] == category_filter]
         print(f"Filtered to category '{category_filter}': {len(questions)} items.")
@@ -246,10 +250,11 @@ def run_benchmark(
         aud = item["audience"]
         history_turns = item.get("history", [])
         question_text = item["question"]
+        prior_turns = item.get("prior_turns", [])
 
         print(f"[{idx:2d}/{len(questions):2d}] {qid:<15} ({cat:<14}, {aud:<6}): '{question_text[:40]}...' ", end="", flush=True)
 
-        def _execute_turn(q_to_ask: str, history_pairs: List[Tuple[str, str]]) -> Dict[str, Any]:
+        def _execute_turn(q_to_ask: str, history_pairs: List[Tuple[str, str]], priors: List[str]) -> Dict[str, Any]:
             # Always use fresh ChatSession per question, with analytics disabled and cache bypassed
             session = ChatSession(
                 access_mode=aud,
@@ -257,9 +262,15 @@ def run_benchmark(
                 store=store,
                 cooldown_seconds=0.0,
             )
-            # Rehydrate history if present
-            for user_msg, asst_msg in history_pairs:
-                session.history.append((user_msg, asst_msg))
+            # If prior turns are specified, ask them live to build real multi-turn conversation
+            if priors:
+                for pt in priors:
+                    session.ask(pt, skip_cache=True)
+                    time.sleep(2.0)
+            elif history_pairs:
+                # Rehydrate history if present
+                for user_msg, asst_msg in history_pairs:
+                    session.history.append((user_msg, asst_msg))
 
             resp = session.ask(q_to_ask, skip_cache=True)
             return {
@@ -283,7 +294,7 @@ def run_benchmark(
         raw_res: Dict[str, Any] = {}
         while attempt <= 2:
             try:
-                raw_res = _execute_turn(question_text, hist_pairs)
+                raw_res = _execute_turn(question_text, hist_pairs, prior_turns)
                 break
             except Exception as exc:
                 if attempt == 1:
@@ -334,6 +345,98 @@ def run_benchmark(
 
     # 4. Write output files
     output_dir.mkdir(parents=True, exist_ok=True)
+    is_supplement = (questions_path.name != "questions.json")
+
+    if is_supplement:
+        # Save separate supplement JSON
+        json_path = output_dir / "supplement_latest.json"
+        if qid_filter and json_path.exists():
+            with open(json_path, "r", encoding="utf-8") as f:
+                prev_data = json.load(f)
+            prev_results = {r["id"]: r for r in prev_data.get("results", [])}
+            for it in scored_items:
+                prev_results[it["id"]] = it
+            ordered_results = []
+            with open(questions_path, "r", encoding="utf-8") as f:
+                full_q = json.load(f)
+            for q in full_q:
+                if q["id"] in prev_results:
+                    ordered_results.append(prev_results[q["id"]])
+            scored_items = ordered_results
+            summary = summarize_results(scored_items)
+            summary["duration_seconds"] = round(eval_duration_sec, 1)
+
+        with open(json_path, "w", encoding="utf-8") as f:
+            json.dump({"summary": summary, "results": scored_items}, f, indent=2)
+        print(f"\nSaved structured supplement results: {json_path}")
+
+        # Update answers.md
+        answers_md_path = output_dir / "answers.md"
+        ans_prefix = ""
+        if answers_md_path.exists():
+            orig_ans = answers_md_path.read_text(encoding="utf-8")
+            if "# Evaluation Supplement Transcript" in orig_ans:
+                ans_prefix = orig_ans.split("# Evaluation Supplement Transcript")[0].rstrip()
+            else:
+                ans_prefix = orig_ans.rstrip()
+        
+        with open(answers_md_path, "w", encoding="utf-8") as f:
+            if ans_prefix:
+                f.write(ans_prefix + "\n\n---\n\n")
+            f.write("# Evaluation Supplement Transcript (5 Items)\n\n")
+            f.write(f"- **Evaluated**: {time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime())}\n")
+            f.write(f"- **Total Questions**: {summary['total_questions']}\n")
+            f.write(f"- **Overall Pass Rate**: {summary['overall_pass_rate']}%\n\n")
+            f.write("---\n\n")
+
+            for it in scored_items:
+                det = it["details"]
+                f.write(f"### `{it['id']}` [{it['outcome']}] ({it['category']})\n\n")
+                f.write(f"**Question**: {det['question']}\n\n")
+                f.write(f"**Answer**:\n> {det['answer']}\n\n")
+                f.write(f"- **Found**: `{det['found']}`\n")
+                f.write(f"- **Top Score**: `{det['top_score']:.4f}` ({det.get('top_source')})\n")
+                f.write(f"- **Sources Cited**: `{det['sources']}`\n")
+                f.write(f"- **Latency**: `{det['latency_ms']:.1f} ms`\n")
+                f.write(f"- **Checks**: `{it['checks']}`\n\n")
+                f.write("---\n\n")
+        print(f"Updated supplement transcript in: {answers_md_path}")
+
+        # Update eval/RESULTS.md
+        results_md_path = PROJECT_ROOT / "eval" / "RESULTS.md"
+        res_prefix = ""
+        if results_md_path.exists():
+            orig_res = results_md_path.read_text(encoding="utf-8")
+            if "# Supplement Evaluation" in orig_res:
+                res_prefix = orig_res.split("# Supplement Evaluation")[0].rstrip()
+            else:
+                res_prefix = orig_res.rstrip()
+
+        with open(results_md_path, "w", encoding="utf-8") as f:
+            if res_prefix:
+                f.write(res_prefix + "\n\n---\n\n")
+            f.write("# Supplement Evaluation (5 Items)\n\n")
+            f.write(f"**Date**: {time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime())}  \n")
+            f.write(f"**Benchmark Size**: {summary['total_questions']} Questions (Client Mode)  \n")
+            f.write(f"**Overall Accuracy**: **{summary['overall_pass_rate']}%** ({summary['passed']}/{summary['total_questions']})  \n")
+            f.write(f"**Runtime Duration**: {summary['duration_seconds']}s  \n\n")
+            f.write("### Headline Accuracy by Category\n\n")
+            f.write("| Category | Questions | Passed | Failed | Errors | Pass Rate |\n")
+            f.write("| :--- | :---: | :---: | :---: | :---: | :---: |\n")
+            for cat, data in summary["categories"].items():
+                f.write(f"| **`{cat}`** | {data['total']} | {data['passed']} | {data['failed']} | {data['errors']} | **{data['pass_rate']:.1f}%** |\n")
+            f.write(f"| **OVERALL TOTAL** | **{summary['total_questions']}** | **{summary['passed']}** | **{summary['failed']}** | **{summary['errors']}** | **{summary['overall_pass_rate']:.1f}%** |\n\n")
+            f.write("### Detailed Supplement Outcomes & Raw Answers\n\n")
+            for it in scored_items:
+                det = it["details"]
+                f.write(f"#### `{it['id']}` ({it['category']}) - Outcome: {it['outcome']}\n")
+                f.write(f"- **Question**: {det['question']}\n")
+                f.write(f"- **Raw Answer**: {det['answer']}\n")
+                f.write(f"- **Found**: `{det['found']}` | **Top Score**: `{det['top_score']:.4f}` ({det.get('top_source')})\n")
+                f.write(f"- **Citations**: `{det['sources']}`\n")
+                f.write(f"- **Checks**: `{it['checks']}`\n\n")
+        print(f"Updated supplement report in: {results_md_path}")
+        return
 
     # 4a. latest.json
     json_path = output_dir / "latest.json"
@@ -425,8 +528,10 @@ def run_benchmark(
 
 
 def rescore_benchmark(questions_path: Path, output_dir: Path) -> None:
-    """Re-score existing benchmark responses in latest.json against updated questions.json without API calls."""
-    latest_json_path = output_dir / "latest.json"
+    """Re-score existing benchmark responses in latest.json or supplement_latest.json without API calls."""
+    is_supplement = (questions_path.name != "questions.json")
+    target_json_name = "supplement_latest.json" if is_supplement else "latest.json"
+    latest_json_path = output_dir / target_json_name
     if not latest_json_path.exists():
         print(f"ERROR: Cannot rescore, {latest_json_path} does not exist.")
         return
@@ -489,6 +594,78 @@ def rescore_benchmark(questions_path: Path, output_dir: Path) -> None:
 
     # Write output files
     output_dir.mkdir(parents=True, exist_ok=True)
+    if is_supplement:
+        json_path = output_dir / "supplement_latest.json"
+        with open(json_path, "w", encoding="utf-8") as f:
+            json.dump({"summary": summary, "results": scored_items}, f, indent=2)
+        print(f"\nSaved structured supplement results: {json_path}")
+
+        answers_md_path = output_dir / "answers.md"
+        ans_prefix = ""
+        if answers_md_path.exists():
+            orig_ans = answers_md_path.read_text(encoding="utf-8")
+            if "# Evaluation Supplement Transcript" in orig_ans:
+                ans_prefix = orig_ans.split("# Evaluation Supplement Transcript")[0].rstrip()
+            else:
+                ans_prefix = orig_ans.rstrip()
+
+        with open(answers_md_path, "w", encoding="utf-8") as f:
+            if ans_prefix:
+                f.write(ans_prefix + "\n\n---\n\n")
+            f.write("# Evaluation Supplement Transcript (5 Items)\n\n")
+            f.write(f"- **Evaluated**: {time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime())}\n")
+            f.write(f"- **Total Questions**: {summary['total_questions']}\n")
+            f.write(f"- **Overall Pass Rate**: {summary['overall_pass_rate']}%\n\n")
+            f.write("---\n\n")
+
+            for it in scored_items:
+                det = it["details"]
+                f.write(f"### `{it['id']}` [{it['outcome']}] ({it['category']})\n\n")
+                f.write(f"**Question**: {det['question']}\n\n")
+                f.write(f"**Answer**:\n> {det['answer']}\n\n")
+                f.write(f"- **Found**: `{det['found']}`\n")
+                f.write(f"- **Top Score**: `{det['top_score']:.4f}` ({det.get('top_source')})\n")
+                f.write(f"- **Sources Cited**: `{det['sources']}`\n")
+                f.write(f"- **Latency**: `{det['latency_ms']:.1f} ms`\n")
+                f.write(f"- **Checks**: `{it['checks']}`\n\n")
+                f.write("---\n\n")
+        print(f"Updated supplement transcript in: {answers_md_path}")
+
+        results_md_path = PROJECT_ROOT / "eval" / "RESULTS.md"
+        res_prefix = ""
+        if results_md_path.exists():
+            orig_res = results_md_path.read_text(encoding="utf-8")
+            if "# Supplement Evaluation" in orig_res:
+                res_prefix = orig_res.split("# Supplement Evaluation")[0].rstrip()
+            else:
+                res_prefix = orig_res.rstrip()
+
+        with open(results_md_path, "w", encoding="utf-8") as f:
+            if res_prefix:
+                f.write(res_prefix + "\n\n---\n\n")
+            f.write("# Supplement Evaluation (5 Items)\n\n")
+            f.write(f"**Date**: {time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime())}  \n")
+            f.write(f"**Benchmark Size**: {summary['total_questions']} Questions (Client Mode)  \n")
+            f.write(f"**Overall Accuracy**: **{summary['overall_pass_rate']}%** ({summary['passed']}/{summary['total_questions']})  \n")
+            f.write(f"**Runtime Duration**: {summary['duration_seconds']}s  \n\n")
+            f.write("### Headline Accuracy by Category\n\n")
+            f.write("| Category | Questions | Passed | Failed | Errors | Pass Rate |\n")
+            f.write("| :--- | :---: | :---: | :---: | :---: | :---: |\n")
+            for cat, data in summary["categories"].items():
+                f.write(f"| **`{cat}`** | {data['total']} | {data['passed']} | {data['failed']} | {data['errors']} | **{data['pass_rate']:.1f}%** |\n")
+            f.write(f"| **OVERALL TOTAL** | **{summary['total_questions']}** | **{summary['passed']}** | **{summary['failed']}** | **{summary['errors']}** | **{summary['overall_pass_rate']:.1f}%** |\n\n")
+            f.write("### Detailed Supplement Outcomes & Raw Answers\n\n")
+            for it in scored_items:
+                det = it["details"]
+                f.write(f"#### `{it['id']}` ({it['category']}) - Outcome: {it['outcome']}\n")
+                f.write(f"- **Question**: {det['question']}\n")
+                f.write(f"- **Raw Answer**: {det['answer']}\n")
+                f.write(f"- **Found**: `{det['found']}` | **Top Score**: `{det['top_score']:.4f}` ({det.get('top_source')})\n")
+                f.write(f"- **Citations**: `{det['sources']}`\n")
+                f.write(f"- **Checks**: `{it['checks']}`\n\n")
+        print(f"Updated supplement report in: {results_md_path}")
+        return
+
     json_path = output_dir / "latest.json"
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump({"summary": summary, "results": scored_items}, f, indent=2)
@@ -577,15 +754,21 @@ def rescore_benchmark(questions_path: Path, output_dir: Path) -> None:
 
 def main():
     parser = argparse.ArgumentParser(description="Run DocMind RAG evaluation benchmark.")
+    parser.add_argument("--file", type=str, default=None, help="Custom questions JSON file path (e.g. eval/questions_supplement.json).")
     parser.add_argument("--validate", action="store_true", help="Perform offline answer key self-validation without calling LLM.")
     parser.add_argument("--rescore", action="store_true", help="Re-score latest.json against questions.json without calling LLM.")
     parser.add_argument("--limit", type=int, default=None, help="Limit to first N questions.")
     parser.add_argument("--category", type=str, default=None, help="Run only questions matching a specific category.")
+    parser.add_argument("--qid", type=str, default=None, help="Run only questions matching a specific question ID.")
     parser.add_argument("--output-dir", type=str, default="eval/results", help="Directory for output files.")
     parser.add_argument("--pause", type=float, default=6.0, help="Pause in seconds between items to protect rate limits.")
     args = parser.parse_args()
 
-    questions_path = PROJECT_ROOT / "eval" / "questions.json"
+    if args.file:
+        raw_f = Path(args.file)
+        questions_path = raw_f if raw_f.is_absolute() else (PROJECT_ROOT / args.file)
+    else:
+        questions_path = PROJECT_ROOT / "eval" / "questions.json"
     output_dir = PROJECT_ROOT / args.output_dir
 
     if args.validate:
@@ -601,6 +784,7 @@ def main():
         output_dir=output_dir,
         limit=args.limit,
         category_filter=args.category,
+        qid_filter=args.qid,
         pause_seconds=args.pause,
     )
 

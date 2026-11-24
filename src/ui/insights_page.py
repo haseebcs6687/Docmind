@@ -11,7 +11,7 @@ import streamlit as st
 from src.analytics import AnalyticsAccessError, gaps_to_csv
 from src.config import DEMO_MODE
 from src.ui.components import page_header, stat_card, stat_cards_grid
-from src.ui.state import get_analytics, get_store
+from src.ui.state import get_analytics, get_store, get_browser_session_id
 
 
 def render_insights_page(role: str = "Staff") -> None:
@@ -41,6 +41,21 @@ def render_insights_page(role: str = "Staff") -> None:
 
     analytics = get_analytics()
     store = get_store()
+    sess_id = get_browser_session_id() if DEMO_MODE else None
+
+    if DEMO_MODE:
+        st.markdown(
+            """
+            <div style="display: inline-flex; align-items: center; gap: 0.5rem; background: #EEF2FF; color: #4F46E5; padding: 0.35rem 0.75rem; border-radius: 9999px; font-size: 0.8rem; font-weight: 500; margin-bottom: 1rem; border: 1px solid #C7D2FE;">
+                <span>🔒 Demo activity + your session</span>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        from src.demo_limits import is_generation_budget_near_limit
+        near_limit, limit_notice = is_generation_budget_near_limit()
+        if near_limit:
+            st.info(f"ℹ️ {limit_notice}")
 
     # Filter Bar
     col_period, col_aud, _ = st.columns([2, 2, 4])
@@ -70,6 +85,7 @@ def render_insights_page(role: str = "Staff") -> None:
             period_days=period_days,
             audience=audience_filter,
             known_sources=known_sources,
+            session_id=sess_id,
         )
     except AnalyticsAccessError as exc:
         st.error(str(exc))

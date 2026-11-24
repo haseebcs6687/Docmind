@@ -1,7 +1,8 @@
 """Configuration and environment variable loader for DocMind."""
 
 import os
-from typing import Optional
+from pathlib import Path
+from typing import Optional, Tuple
 from dotenv import load_dotenv
 from src.logging_setup import configure_logging
 
@@ -86,7 +87,41 @@ DEMO_MAX_UPLOAD_MB: int = int(os.getenv("DEMO_MAX_UPLOAD_MB", "5"))
 SESSION_DOC_TTL_MINUTES: int = int(os.getenv("SESSION_DOC_TTL_MINUTES", "120"))
 DEMO_DAILY_QUESTION_BUDGET: int = int(os.getenv("DEMO_DAILY_QUESTION_BUDGET", "200"))
 DEMO_DAILY_UPLOAD_EMBED_BUDGET: int = int(os.getenv("DEMO_DAILY_UPLOAD_EMBED_BUDGET", "150"))
+DEMO_DAILY_GENERATION_BUDGET: int = int(os.getenv("DEMO_DAILY_GENERATION_BUDGET", "350"))
+DEMO_DAILY_EMBED_BUDGET: int = int(os.getenv("DEMO_DAILY_EMBED_BUDGET", "600"))
+DEMO_REAL_EVENT_RETENTION_HOURS: int = int(os.getenv("DEMO_REAL_EVENT_RETENTION_HOURS", "24"))
 DEMO_QUOTA_TZ: str = os.getenv("DEMO_QUOTA_TZ", "America/Los_Angeles")
+DEMO_LIMITS_DB_PATH: str = os.getenv("DEMO_LIMITS_DB_PATH", "data/demo_limits.db")
+
+
+def ensure_storage_dirs() -> None:
+    """Ensure parent directories for Chroma and SQLite database paths exist."""
+    for path_str in (CHROMA_DIR, ANALYTICS_DB_PATH, DEMO_LIMITS_DB_PATH):
+        try:
+            p = Path(path_str)
+            target = p.parent if p.suffix else p
+            target.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            pass
+
+
+def check_storage_writable() -> Tuple[bool, Optional[str]]:
+    """Verify that storage paths are writable. Returns (is_writable, failed_path_if_any)."""
+    for path_str in (CHROMA_DIR, ANALYTICS_DB_PATH, DEMO_LIMITS_DB_PATH):
+        try:
+            p = Path(path_str)
+            target = p.parent if p.suffix else p
+            target.mkdir(parents=True, exist_ok=True)
+            test_file = target / f".write_test_{os.getpid()}"
+            test_file.touch()
+            test_file.unlink(missing_ok=True)
+        except (PermissionError, OSError):
+            return False, path_str
+    return True, None
+
+
+# Initialize directories on module load
+ensure_storage_dirs()
 
 
 def get_gemini_api_key() -> str:

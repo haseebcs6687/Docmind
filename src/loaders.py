@@ -34,6 +34,12 @@ class DocUnit:
     section: Optional[str] = None
     file_type: str = ""
 
+    def __post_init__(self) -> None:
+        # Text files do not have page numbers
+        is_txt = (self.file_type.lower() == "txt") or self.source.lower().endswith(".txt")
+        if is_txt:
+            self.page = None
+
     def citation_label(self) -> str:
         """Return a human-readable citation label.
 
@@ -42,7 +48,8 @@ class DocUnit:
             - "Client_Engagement_Letter_Template.docx, 3. Professional Fee Schedule & Hourly Rates"
             - "Client_FAQ.txt, Q&A 7"
         """
-        if self.page is not None:
+        is_txt = (self.file_type.lower() == "txt") or self.source.lower().endswith(".txt")
+        if self.page is not None and not is_txt:
             return f"{self.source}, p. {self.page}"
         elif self.section:
             return f"{self.source}, {self.section}"

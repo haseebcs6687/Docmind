@@ -9,15 +9,18 @@ from typing import Any, Dict, Optional, Tuple
 from zoneinfo import ZoneInfo
 
 from src.config import (
+    DEMO_DAILY_EMBED_BUDGET,
+    DEMO_DAILY_GENERATION_BUDGET,
     DEMO_DAILY_QUESTION_BUDGET,
     DEMO_DAILY_UPLOAD_EMBED_BUDGET,
+    DEMO_LIMITS_DB_PATH,
     DEMO_MODE,
     DEMO_QUOTA_TZ,
 )
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_LIMITS_DB = str(Path(__file__).resolve().parent.parent / "data" / "demo_limits.db")
+DEFAULT_LIMITS_DB = DEMO_LIMITS_DB_PATH
 _DB_LOCK = threading.Lock()
 
 BUDGET_EXCEEDED_MESSAGE = "Today's free demo capacity has been used up. Please come back tomorrow."
@@ -52,11 +55,147 @@ def _init_db(db_path: str) -> None:
                 date_str TEXT PRIMARY KEY,
                 question_count INTEGER DEFAULT 0,
                 upload_embed_count INTEGER DEFAULT 0,
+                generation_count INTEGER DEFAULT 0,
+                embed_count INTEGER DEFAULT 0,
                 updated_at TEXT
             );
             """
         )
+        # Automatic column migration if existing database from earlier step
+        for col in ("generation_count", "embed_count"):
+            try:
+                conn.execute(f"ALTER TABLE daily_counters ADD COLUMN {col} INTEGER DEFAULT 0;")
+            except sqlite3.OperationalError:
+                pass
         conn.commit()
+
+
+def check_and_count_generation(
+    db_path: Optional[str] = None,
+    tz_name: str = DEMO_QUOTA_TZ,
+    now_dt: Optional[datetime] = None,
+) -> Tuple[bool, str]:
+    """Check whether daily generation budget is available in demo mode and increment counter if allowed.
+
+    Returns:
+        (allowed: bool, message: str)
+    """
+    if not DEMO_MODE:
+        return True, ""
+
+    db = db_path or DEFAULT_LIMITS_DB
+    date_str = get_current_pacific_date(tz_name=tz_name, now_dt=now_dt)
+
+    try:
+        with _DB_LOCK:
+            _init_db(db)
+            with sqlite3.connect(db, timeout=10.0) as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "SELECT generation_count FROM daily_counters WHERE date_str = ?",
+                    (date_str,),
+                )
+                row = cursor.fetchone()
+                current_gen = row[0] if row else 0
+
+                if current_gen >= DEMO_DAILY_GENERATION_BUDGET:
+                    return False, BUDGET_EXCEEDED_MESSAGE
+
+                now_iso = datetime.now(timezone.utc).isoformat()
+                cursor.execute(
+                    """
+                    INSERT INTO daily_counters (date_str, question_count, upload_embed_count, generation_count, embed_count, updated_at)
+                    VALUES (?, 0, 0, 1, 0, ?)
+                    ON CONFLICT(date_str) DO UPDATE SET
+                        generation_count = generation_count + 1,
+                        updated_at = excluded.updated_at;
+                    """,
+                    (date_str, now_iso),
+                )
+                conn.commit()
+                return True, ""
+    except Exception as exc:
+        logger.error("check_and_count_generation failed with error class %s", type(exc).__name__)
+        return True, ""
+
+
+def check_and_count_embed(
+    request_count: int = 1,
+    db_path: Optional[str] = None,
+    tz_name: str = DEMO_QUOTA_TZ,
+    now_dt: Optional[datetime] = None,
+) -> Tuple[bool, str]:
+    """Check whether daily embed request budget is available in demo mode and increment counter if allowed.
+
+    Returns:
+        (allowed: bool, message: str)
+    """
+    if not DEMO_MODE:
+        return True, ""
+
+    db = db_path or DEFAULT_LIMITS_DB
+    date_str = get_current_pacific_date(tz_name=tz_name, now_dt=now_dt)
+
+    try:
+        with _DB_LOCK:
+            _init_db(db)
+            with sqlite3.connect(db, timeout=10.0) as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "SELECT embed_count FROM daily_counters WHERE date_str = ?",
+                    (date_str,),
+                )
+                row = cursor.fetchone()
+                current_emb = row[0] if row else 0
+
+                if current_emb + request_count > DEMO_DAILY_EMBED_BUDGET:
+                    return False, BUDGET_EXCEEDED_MESSAGE
+
+                now_iso = datetime.now(timezone.utc).isoformat()
+                cursor.execute(
+                    """
+                    INSERT INTO daily_counters (date_str, question_count, upload_embed_count, generation_count, embed_count, updated_at)
+                    VALUES (?, 0, 0, 0, ?, ?)
+                    ON CONFLICT(date_str) DO UPDATE SET
+                        embed_count = embed_count + excluded.embed_count,
+                        updated_at = excluded.updated_at;
+                    """,
+                    (date_str, request_count, now_iso),
+                )
+                conn.commit()
+                return True, ""
+    except Exception as exc:
+        logger.error("check_and_count_embed failed with error class %s", type(exc).__name__)
+        return True, ""
+
+
+def is_generation_budget_near_limit(
+    db_path: Optional[str] = None,
+    tz_name: str = DEMO_QUOTA_TZ,
+    threshold_ratio: float = 0.85,
+    now_dt: Optional[datetime] = None,
+) -> Tuple[bool, str]:
+    """Check if generation usage has reached or exceeded threshold_ratio (default 85%)."""
+    if not DEMO_MODE:
+        return False, ""
+    db = db_path or DEFAULT_LIMITS_DB
+    date_str = get_current_pacific_date(tz_name=tz_name, now_dt=now_dt)
+    try:
+        with _DB_LOCK:
+            _init_db(db)
+            with sqlite3.connect(db, timeout=10.0) as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT generation_count FROM daily_counters WHERE date_str = ?", (date_str,))
+                row = cursor.fetchone()
+                current_gen = row[0] if row else 0
+                limit = int(DEMO_DAILY_GENERATION_BUDGET * threshold_ratio)
+                if current_gen >= DEMO_DAILY_GENERATION_BUDGET:
+                    return True, BUDGET_EXCEEDED_MESSAGE
+                elif current_gen >= limit:
+                    return True, f"Notice: High demo traffic today ({current_gen}/{DEMO_DAILY_GENERATION_BUDGET} daily generation requests used)."
+                return False, ""
+    except Exception:
+        return False, ""
 
 
 def check_and_count_question(
@@ -170,18 +309,23 @@ def get_daily_usage(
 
     q_count = 0
     u_count = 0
+    g_count = 0
+    e_count = 0
     try:
         with _DB_LOCK:
             _init_db(db)
             with sqlite3.connect(db, timeout=10.0) as conn:
                 cursor = conn.cursor()
                 cursor.execute(
-                    "SELECT question_count, upload_embed_count FROM daily_counters WHERE date_str = ?",
+                    "SELECT question_count, upload_embed_count, generation_count, embed_count FROM daily_counters WHERE date_str = ?",
                     (date_str,),
                 )
                 row = cursor.fetchone()
                 if row:
-                    q_count, u_count = row[0], row[1]
+                    q_count = row[0] or 0
+                    u_count = row[1] or 0
+                    g_count = row[2] or 0
+                    e_count = row[3] or 0
     except Exception as exc:
         logger.error("get_daily_usage failed with error class %s", type(exc).__name__)
 
@@ -193,4 +337,10 @@ def get_daily_usage(
         "upload_embed_used": u_count,
         "upload_embed_budget": DEMO_DAILY_UPLOAD_EMBED_BUDGET,
         "upload_embed_remaining": max(0, DEMO_DAILY_UPLOAD_EMBED_BUDGET - u_count),
+        "generation_used": g_count,
+        "generation_budget": DEMO_DAILY_GENERATION_BUDGET,
+        "generation_remaining": max(0, DEMO_DAILY_GENERATION_BUDGET - g_count),
+        "embed_used": e_count,
+        "embed_budget": DEMO_DAILY_EMBED_BUDGET,
+        "embed_remaining": max(0, DEMO_DAILY_EMBED_BUDGET - e_count),
     }

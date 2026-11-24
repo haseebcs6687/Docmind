@@ -6,6 +6,15 @@ DocMind is configured with a fictional law firm demo dataset (**Sterling & Rauf 
 
 ---
 
+## Live Demo
+
+🚀 **Interactive Demo**: [https://huggingface.co/spaces/user/docmind](https://huggingface.co/spaces/user/docmind) *(Hosted on Hugging Face Spaces)*
+
+> [!NOTE]
+> **Data Privacy Notice**: This public demonstration utilizes Google Gemini API's free/unpaid service tier. Under Google's Terms of Service for unpaid developer services, submitted prompt contents may be reviewed and used to train Google products and services. Do **not** upload real confidential client files, sensitive contracts, or personally identifiable data. For private, production-grade law firm operations, configure a paid enterprise Gemini API tier where data logging is disabled.
+
+---
+
 ## Key Features
 
 - **Strict Source Citations**: Every factual claim is backed by citations to specific document files and page/section numbers.
@@ -101,7 +110,7 @@ pip install -r requirements-dev.txt
 Create a `.env` file in the project root (see `.env.example`):
 
 ```ini
-GEMINI_API_KEY=your_actual_gemini_api_key_here
+GEMINI_API_KEY=
 GEMINI_MODEL=gemini-3.5-flash-lite
 GEMINI_FALLBACK_MODEL=gemini-3.8-flash
 GEMINI_EMBED_MODEL=gemini-embedding-001

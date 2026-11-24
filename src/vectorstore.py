@@ -16,6 +16,7 @@ from src.chunking import Chunk, chunk_units
 from src.config import (
     CHROMA_DIR,
     DEFAULT_UPLOAD_VISIBILITY,
+    DEMO_MODE,
     EMBED_BATCH_SIZE,
     EMBED_BATCH_SLEEP_SECONDS,
     GEMINI_EMBED_MODEL,
@@ -81,6 +82,15 @@ def embed_texts(
         batch = texts[i : i + batch_size]
         retries = 0
         backoff_delay = 1.0
+
+        if DEMO_MODE:
+            from src.demo_limits import check_and_count_embed
+            allowed, limit_msg = check_and_count_embed(request_count=1)
+            if not allowed:
+                raise EmbeddingError(
+                    ErrorCategory.QUOTA_DAILY,
+                    limit_msg or "Today's free demo capacity has been used up. Please come back tomorrow.",
+                )
 
         while True:
             try:
@@ -501,8 +511,11 @@ class VectorStore:
 
         for doc_text, meta, dist in zip(docs, metas, distances):
             score = max(0.0, min(1.0, 1.0 - float(dist)))
+            src_name = meta.get("source", "")
+            ftype = meta.get("file_type", "")
+            is_txt = (ftype.lower() == "txt") or src_name.lower().endswith(".txt")
             page_val = meta.get("page")
-            page_clean = int(page_val) if page_val and page_val > 0 else None
+            page_clean = int(page_val) if page_val and page_val > 0 and not is_txt else None
             section_clean = meta.get("section") or None
 
             output.append({

@@ -8,6 +8,7 @@ import time
 from typing import Any, Callable, Dict, Optional, Tuple, TypeVar
 
 from src.config import (
+    DEMO_MODE,
     GEMINI_FALLBACK_MODEL,
     GEMINI_MODEL,
     GEMINI_TIMEOUT_SECONDS,
@@ -242,6 +243,16 @@ def call_with_retry_and_fallback(
     target_fn = call_fn if call_fn is not None else fn
     if target_fn is None:
         raise ValueError("A callable function must be provided to call_with_retry_and_fallback.")
+
+    # Global daily generation budget check in demo mode (0 API calls when exhausted)
+    if DEMO_MODE:
+        from src.demo_limits import check_and_count_generation
+        allowed, msg = check_and_count_generation()
+        if not allowed:
+            raise GenerationError(
+                category=ErrorCategory.QUOTA_DAILY,
+                message=msg or "Today's free demo capacity has been used up. Please come back tomorrow.",
+            )
 
     # Backward compatibility: if max_retries is passed, respect it as an upper bound on primary attempts
     effective_primary_attempts = primary_attempts

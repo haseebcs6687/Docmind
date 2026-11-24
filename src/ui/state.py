@@ -56,7 +56,11 @@ def get_store() -> Union[VectorStore, CompositeStore]:
 @st.cache_resource
 def get_analytics() -> AnalyticsStore:
     """Return a cached AnalyticsStore instance shared across all sessions."""
-    return AnalyticsStore()
+    store = AnalyticsStore()
+    if DEMO_MODE:
+        from src.analytics import ensure_demo_activity
+        ensure_demo_activity(store)
+    return store
 
 
 def get_session(access_mode: str = "staff") -> ChatSession:
@@ -65,12 +69,14 @@ def get_session(access_mode: str = "staff") -> ChatSession:
     if session_key not in st.session_state:
         store = get_store()
         analytics = get_analytics()
+        sess_id = get_browser_session_id()
         st.session_state[session_key] = ChatSession(
             store=store,
             cooldown_seconds=MIN_SECONDS_BETWEEN_QUESTIONS,
             max_questions=MAX_QUESTIONS_PER_SESSION,
             access_mode=access_mode,
             analytics=analytics,
+            session_id=sess_id,
         )
     return st.session_state[session_key]
 

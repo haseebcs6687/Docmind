@@ -22,6 +22,11 @@ class Chunk:
     citation: str
     chunk_index: int
 
+    def __post_init__(self) -> None:
+        is_txt = (self.file_type.lower() == "txt") or self.source.lower().endswith(".txt")
+        if is_txt:
+            self.page = None
+
 
 def _split_into_sentences(text: str) -> List[str]:
     """Split text into sentences, supporting standard punctuation (.!?)."""

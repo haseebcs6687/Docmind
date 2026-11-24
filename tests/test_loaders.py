@@ -130,3 +130,25 @@ def test_bytes_input_works():
     assert len(units_stream) == 2
     assert units_stream[1].section == "Q&A 2"
     assert "5,000" in units_stream[1].text
+
+
+def test_txt_citation_never_includes_page():
+    """Verify that TXT units never produce 'p. X' in citation_label(), even if page is set."""
+    # Direct DocUnit creation with page=1 explicitly passed
+    u_txt_manual = DocUnit(source="Test_Policy.txt", text="Some text", file_type="txt", page=1)
+    assert u_txt_manual.page is None
+    assert u_txt_manual.citation_label() == "Test_Policy.txt"
+
+    # TXT with section
+    u_txt_sec = DocUnit(source="Test_Policy.txt", text="Some text", file_type="txt", section="Overview", page=1)
+    assert u_txt_sec.page is None
+    assert u_txt_sec.citation_label() == "Test_Policy.txt, Overview"
+
+    # DOCX preserves section
+    u_docx = DocUnit(source="Agreement.docx", text="Rent", file_type="docx", section="4. Monthly Rent")
+    assert u_docx.citation_label() == "Agreement.docx, 4. Monthly Rent"
+
+    # PDF preserves page
+    u_pdf = DocUnit(source="Policy.pdf", text="Policy text", file_type="pdf", page=3)
+    assert u_pdf.citation_label() == "Policy.pdf, p. 3"
+

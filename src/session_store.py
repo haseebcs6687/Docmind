@@ -252,8 +252,11 @@ class SessionDocStore:
 
         for doc_text, meta, dist in zip(docs, metas, distances):
             score = max(0.0, min(1.0, 1.0 - float(dist)))
+            src_name = meta.get("source", "")
+            ftype = meta.get("file_type", "")
+            is_txt = (ftype.lower() == "txt") or src_name.lower().endswith(".txt")
             page_val = meta.get("page")
-            page_clean = int(page_val) if page_val and page_val > 0 else None
+            page_clean = int(page_val) if page_val and page_val > 0 and not is_txt else None
             section_clean = meta.get("section") or None
 
             output.append({
