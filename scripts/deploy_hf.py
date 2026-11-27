@@ -18,12 +18,36 @@ from typing import Dict, List, Set, Tuple
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
-# Regex patterns for secret detection
-SECRET_PATTERNS = [
-    (re.compile(r"AIza[0-9A-Za-z_-]{35}"), "Google Gemini API Key (AIza...)"),
-    (re.compile(r"hf_[A-Za-z0-9]{30,}"), "Hugging Face User Token (hf_...)"),
-    (re.compile(r"GEMINI_API_KEY=\S+"), "GEMINI_API_KEY value assignment"),
-]
+# Assembled pattern components so deploy_hf.py source does not trigger its own scanner
+_AIZA_PREFIX = "AI" + "za"
+_HF_PREFIX = "hf" + "_"
+_GEMINI_KEY_VAR = "GEMINI" + "_API_KEY"
+
+# Pattern 1: Google Gemini API Key format (AIza... followed by 35 chars = 39 total)
+AIZA_PATTERN = re.compile(_AIZA_PREFIX + r"[0-9A-Za-z_-]{35}")
+
+# Pattern 2: Hugging Face user access token format (hf_... followed by 30+ chars)
+HF_PATTERN = re.compile(_HF_PREFIX + r"[A-Za-z0-9]{30,}")
+
+# Pattern 3: Prohibited key/token/secret assignment with a real-looking secret value.
+# Matches assignments to GEMINI_API_KEY or variables ending in KEY, TOKEN, SECRET.
+# Secret value must have 20+ chars of [A-Za-z0-9_-] without quotes, spaces, brackets, dots, ellipses, etc.
+ASSIGN_KEY_PATTERN = re.compile(
+    r"(?:" + _GEMINI_KEY_VAR + r"|[A-Z0-9_]*(?:KEY|TOKEN|SECRET))\s*=\s*['\"]?([A-Za-z0-9_-]{20,})['\"]?"
+)
+
+# Obvious placeholder indicators that should not be flagged as active credentials
+PLACEHOLDER_SUBSTRINGS = (
+    "placeholder",
+    "your_",
+    "dummy",
+    "example",
+    "sample",
+    "replace_me",
+    "insert_",
+    "my_key",
+    "fake",
+)
 
 SPACE_README_TEMPLATE = """---
 title: DocMind
@@ -107,6 +131,18 @@ def is_ignored(rel_path: str, rules: List[str]) -> bool:
         return True
     if rel_path.startswith("data/analytics.db") or rel_path.startswith("data/demo_limits.db"):
         return True
+    # Evaluation outputs / scratch run results must not ship
+    if rel_path.startswith("eval/results/") or rel_path == "eval/results":
+        return True
+    # Dev-only generation, audit, and verification scripts
+    if rel_path in {
+        "scripts/generate_sample_docs.py",
+        "scripts/audit_requirements.py",
+        "scripts/verify_fresh_clone.py",
+        "scripts/verify_headless_startup.py",
+        "scripts/test_injection_rigor.py",
+    }:
+        return True
 
     # Rule checks
     for rule in rules:
@@ -118,23 +154,52 @@ def is_ignored(rel_path: str, rules: List[str]) -> bool:
     return False
 
 
+def scan_content_for_secrets(content: str) -> List[Tuple[str, str]]:
+    """Scan text content for prohibited secrets.
+
+    Returns [(pattern_description, masked_snippet)].
+    Masking rule: displays at most the first 4 characters plus the length.
+    """
+    findings = []
+
+    # 1. Google API keys anywhere (AIza...)
+    for m in AIZA_PATTERN.finditer(content):
+        val = m.group(0)
+        masked = f"{val[:4]}...<len={len(val)}>"
+        findings.append(("Google Gemini API Key (" + _AIZA_PREFIX + "...)", masked))
+
+    # 2. Hugging Face user tokens anywhere (hf_...)
+    for m in HF_PATTERN.finditer(content):
+        val = m.group(0)
+        masked = f"{val[:4]}...<len={len(val)}>"
+        findings.append(("Hugging Face Access Token (" + _HF_PREFIX + "...)", masked))
+
+    # 3. Variable assignments with real-looking secret values
+    for m in ASSIGN_KEY_PATTERN.finditer(content):
+        val = m.group(1)
+        val_lower = val.lower()
+        # Skip obvious placeholders
+        if any(ph in val_lower for ph in PLACEHOLDER_SUBSTRINGS):
+            continue
+        # Skip repetitive dummy values (e.g. 'xxxx...', '0000...')
+        if len(set(val)) <= 2:
+            continue
+        var_name = m.group(0).split("=")[0].strip()
+        masked = f"{val[:4]}...<len={len(val)}>"
+        findings.append((f"Prohibited Secret Assignment ({var_name}=...)", masked))
+
+    return findings
+
+
 def scan_file_for_secrets(rel_path: str) -> List[Tuple[str, str]]:
-    """Scan a staged file for prohibited secrets. Returns [(pattern_name, line_snippet)]."""
+    """Scan a staged file for prohibited secrets. Returns [(pattern_name, masked_snippet)]."""
     p = Path(rel_path)
     abs_path = p if p.is_absolute() else (PROJECT_ROOT / rel_path)
-    findings = []
     try:
         content = abs_path.read_text(encoding="utf-8", errors="ignore")
     except Exception:
         return []
-
-    for pattern, desc in SECRET_PATTERNS:
-        match = pattern.search(content)
-        if match:
-            matched_text = match.group(0)
-            masked = matched_text[:6] + "..." + matched_text[-4:] if len(matched_text) > 10 else "***"
-            findings.append((desc, masked))
-    return findings
+    return scan_content_for_secrets(content)
 
 
 def deploy_hf(space_id: str, dry_run: bool = False, message: str = "Deploy DocMind to Hugging Face Spaces"):

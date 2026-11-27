@@ -315,18 +315,23 @@ def test_check_storage_writable_failure(tmp_path):
 # ---------------------------------------------------------------------------
 
 def test_secret_scanner_catches_planted_keys(tmp_path):
-    """Verify pre-flight secret scanner catches Google API keys, HF tokens, and key assignments."""
+    """Verify pre-flight secret scanner catches Google API keys, HF tokens, and real-looking key assignments."""
     clean_file = tmp_path / "clean.py"
     clean_file.write_text("print('Clean code without secrets')", encoding="utf-8")
 
+    # Assemble test strings from parts to prevent false positives during static repo greps
+    fake_aiza = "AI" + "za" + "Sy" + ("A" * 33)
+    fake_hf = "hf" + "_" + ("B" * 30)
+    fake_gemini = "GEMINI" + "_API_KEY=kL9pQ2mZ5rT8vX1wY4bN7cD3eF6gH0jS"
+
     planted_key = tmp_path / "planted_key.py"
-    planted_key.write_text("API_KEY = 'AIzaSyA12345678901234567890123456789012'", encoding="utf-8")
+    planted_key.write_text(f"API_KEY = '{fake_aiza}'\n", encoding="utf-8")
 
     planted_hf = tmp_path / "planted_hf.py"
-    planted_hf.write_text("TOKEN = 'hf_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'", encoding="utf-8")
+    planted_hf.write_text(f"TOKEN = '{fake_hf}'\n", encoding="utf-8")
 
     planted_env_assignment = tmp_path / "planted_assign.txt"
-    planted_env_assignment.write_text("GEMINI_API_KEY=AIzaDummyKeyHereWithLengthMoreThan20Chars", encoding="utf-8")
+    planted_env_assignment.write_text(f"{fake_gemini}\n", encoding="utf-8")
 
     # Scanner results
     assert scan_file_for_secrets(str(clean_file)) == []
@@ -334,17 +339,48 @@ def test_secret_scanner_catches_planted_keys(tmp_path):
     key_findings = scan_file_for_secrets(str(planted_key))
     assert len(key_findings) > 0
     assert "Google Gemini API Key" in key_findings[0][0]
+    assert key_findings[0][1].startswith(fake_aiza[:4])
 
     hf_findings = scan_file_for_secrets(str(planted_hf))
     assert len(hf_findings) > 0
-    assert "Hugging Face User Token" in hf_findings[0][0]
+    assert "Hugging Face Access Token" in hf_findings[0][0]
+    assert hf_findings[0][1].startswith(fake_hf[:4])
 
     assign_findings = scan_file_for_secrets(str(planted_env_assignment))
     assert len(assign_findings) > 0
+    assert "Prohibited Secret Assignment" in assign_findings[0][0]
+    assert assign_findings[0][1].startswith("kL9p")
+
+
+def test_secret_scanner_ignores_placeholders_and_doc_lines():
+    """Verify placeholders, backticks, empty values, and documentation lines are not flagged."""
+    doc_lines = [
+        "GEMINI_API_KEY=",
+        "GEMINI_API_KEY=`",
+        "GEMINI_API_KEY=<your key>",
+        "GEMINI_API_KEY=your_actual_gemini_api_key_here",
+        'GEMINI_API_KEY="your_key_here"',
+        'HF_TOKEN="hf_your_write_token_here"',
+        "GEMINI_API_KEY=placeholder_token_for_docs",
+        "GEMINI_API_KEY=dummy_value_string_12345",
+        "GEMINI_API_KEY=example_gemini_key_reference",
+    ]
+    for line in doc_lines:
+        findings = scan_file_for_secrets(line) if Path(line).exists() else []
+        from scripts.deploy_hf import scan_content_for_secrets
+        content_findings = scan_content_for_secrets(line)
+        assert content_findings == [], f"Line wrongly flagged: {line} -> {content_findings}"
+
+
+def test_secret_scanner_clean_on_repo_files():
+    """Verify that real repository files that previously triggered scanner are now 100% clean."""
+    for repo_file in ["docs/DEPLOY.md", "docs/PROGRESS.md", "scripts/deploy_hf.py"]:
+        findings = scan_file_for_secrets(repo_file)
+        assert findings == [], f"Unexpected secret scanner hit in {repo_file}: {findings}"
 
 
 def test_dockerignore_rules_exclude_sensitive_files():
-    """Verify .dockerignore rules exclude .env, .git, .venv, chroma_db, and databases."""
+    """Verify .dockerignore rules exclude .env, .git, .venv, chroma_db, databases, and dev outputs."""
     rules = load_dockerignore_rules()
     assert is_ignored(".env", rules) is True
     assert is_ignored(".env.production", rules) is True
@@ -354,8 +390,15 @@ def test_dockerignore_rules_exclude_sensitive_files():
     assert is_ignored("data/analytics.db", rules) is True
     assert is_ignored("data/demo_limits.db", rules) is True
     assert is_ignored("chroma_db/chroma.sqlite3", rules) is True
+    assert is_ignored("eval/results/answers.md", rules) is True
+    assert is_ignored("eval/results/latest.json", rules) is True
+    assert is_ignored("scripts/generate_sample_docs.py", rules) is True
+    assert is_ignored("scripts/verify_fresh_clone.py", rules) is True
 
-    # Application files must NOT be ignored
+    # Application runtime files must NOT be ignored
     assert is_ignored("app.py", rules) is False
     assert is_ignored("src/rag.py", rules) is False
+    assert is_ignored("data/sample_docs/Fee_Schedule_2026.pdf", rules) is False
+    assert is_ignored("data/demo_index/index.json", rules) is False
+    assert is_ignored("data/demo_activity/seed_questions.json", rules) is False
     assert is_ignored("requirements.txt", rules) is False

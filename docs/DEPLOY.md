@@ -57,8 +57,9 @@ python scripts/deploy_hf.py --dry-run
 ```
 The script will:
 - Check that `.env` and sensitive files are excluded.
-- Run regex scanners for Gemini keys (`AIza...`), HF tokens (`hf_...`), and key assignments (`GEMINI_API_KEY=value`).
-- Calculate total payload size (typically ~2.2 MB).
+- Run regex scanners for Gemini keys (`AIza...`), HF tokens (`hf_...`), and key assignments.
+- Calculate total payload size (typically ~2.1 MB).
+- Prune evaluation outputs (`eval/results/`) and dev-only scripts.
 - Print the generated Space `README.md` YAML metadata header.
 
 ### Step 2: Deploy to Space

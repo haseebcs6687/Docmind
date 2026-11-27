@@ -9,6 +9,12 @@ docs/ui-reference
 docs/screenshots
 tests
 scratch
+eval/results
+scripts/generate_sample_docs.py
+scripts/audit_requirements.py
+scripts/verify_fresh_clone.py
+scripts/verify_headless_startup.py
+scripts/test_injection_rigor.py
 *.pyc
 *.pyo
 *.pyd
